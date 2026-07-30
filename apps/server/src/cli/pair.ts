@@ -83,30 +83,50 @@ export class NoRunningServerError extends Schema.TaggedErrorClass<NoRunningServe
   }
 }
 
-export class PairTailscaleError extends Schema.TaggedErrorClass<PairTailscaleError>()(
-  "PairTailscaleError",
-  {
-    reason: Schema.Literals([
-      "status-unavailable",
-      "magicdns-missing",
-      "serves-other-environment",
-      "serve-failed",
-    ]),
-    servePort: Schema.Number,
-    cause: Schema.optional(Schema.Defect()),
-  },
+// Each tailscale failure gets its own class (same reasoning as
+// scripts/lib/dev-share.ts): distinct caller-visible message, distinct remedy.
+export class TailscaleUnavailableError extends Schema.TaggedErrorClass<TailscaleUnavailableError>()(
+  "TailscaleUnavailableError",
+  { cause: Schema.Defect() },
 ) {
   override get message(): string {
-    switch (this.reason) {
-      case "status-unavailable":
-        return "Could not talk to Tailscale. Is tailscaled running? Try `tailscale status`.";
-      case "magicdns-missing":
-        return "This machine has no MagicDNS name. Run `tailscale up` and enable MagicDNS.";
-      case "serves-other-environment":
-        return `Tailscale Serve on HTTPS port ${String(this.servePort)} already fronts a different T3 Code server. Pass --tailscale-serve-port to publish this one on another port.`;
-      case "serve-failed":
-        return `tailscale serve failed for HTTPS port ${String(this.servePort)}. Run \`tailscale serve --https=${String(this.servePort)} --bg <local-url>\` by hand to see why.`;
-    }
+    return "Could not talk to Tailscale. Is tailscaled running? Try `tailscale status`.";
+  }
+}
+
+export class MagicDnsNameMissingError extends Schema.TaggedErrorClass<MagicDnsNameMissingError>()(
+  "MagicDnsNameMissingError",
+  {},
+) {
+  override get message(): string {
+    return "This machine has no MagicDNS name. Run `tailscale up` and enable MagicDNS.";
+  }
+}
+
+export class ServesOtherEnvironmentError extends Schema.TaggedErrorClass<ServesOtherEnvironmentError>()(
+  "ServesOtherEnvironmentError",
+  { servePort: Schema.Number },
+) {
+  override get message(): string {
+    return `Tailscale Serve on HTTPS port ${String(this.servePort)} already fronts a different T3 Code server. Pass --tailscale-serve-port to publish this one on another port.`;
+  }
+}
+
+export class TailscaleServeFailedError extends Schema.TaggedErrorClass<TailscaleServeFailedError>()(
+  "TailscaleServeFailedError",
+  { servePort: Schema.Number, cause: Schema.Defect() },
+) {
+  override get message(): string {
+    return `tailscale serve failed for HTTPS port ${String(this.servePort)}. Run \`tailscale serve --https=${String(this.servePort)} --bg <local-url>\` by hand to see why.`;
+  }
+}
+
+export class ServePortOccupiedError extends Schema.TaggedErrorClass<ServePortOccupiedError>()(
+  "ServePortOccupiedError",
+  { servePort: Schema.Number },
+) {
+  override get message(): string {
+    return `HTTPS port ${String(this.servePort)} on the tailnet already serves something that is not a T3 Code server. Pass --tailscale-serve-port to publish this one on another port.`;
   }
 }
 
@@ -114,23 +134,35 @@ export class PairTailscaleError extends Schema.TaggedErrorClass<PairTailscaleErr
 export const resolveDirectPairingBaseUrl = (state: PersistedServerRuntimeState): string =>
   state.devUrl ?? resolveHeadlessConnectionString(state.host, state.port);
 
+export class DevServerNotProxiableError extends Schema.TaggedErrorClass<DevServerNotProxiableError>()(
+  "DevServerNotProxiableError",
+  { devUrl: Schema.String },
+) {
+  override get message(): string {
+    return `Tailscale Serve can only proxy plain-HTTP local targets, and this dev server runs at ${this.devUrl}. Pair without --tailscale instead.`;
+  }
+}
+
+const isDevServerNotProxiableError = Schema.is(DevServerNotProxiableError);
+
 /**
  * The local endpoint Tailscale Serve should proxy to. Dev servers are
  * single-origin, so the web dev server's port is the one to publish; the
- * backend rides along behind Vite's proxy.
+ * backend rides along behind Vite's proxy. Serve targets are always plain
+ * HTTP, so an HTTPS dev URL cannot be proxied and is rejected.
  */
 export const resolveTailscaleLocalTarget = (
   state: PersistedServerRuntimeState,
-): { readonly localPort: number; readonly localHost?: string } => {
+): { readonly localPort: number; readonly localHost?: string } | DevServerNotProxiableError => {
   if (state.devUrl !== undefined) {
     const devUrl = new URL(state.devUrl);
-    const localPort =
-      devUrl.port.length > 0
-        ? Number.parseInt(devUrl.port, 10)
-        : devUrl.protocol === "https:"
-          ? 443
-          : 80;
-    return { localPort };
+    if (devUrl.protocol !== "http:") {
+      return new DevServerNotProxiableError({ devUrl: state.devUrl });
+    }
+    const localPort = devUrl.port.length > 0 ? Number.parseInt(devUrl.port, 10) : 80;
+    return isLoopbackHost(devUrl.hostname)
+      ? { localPort }
+      : { localPort, localHost: devUrl.hostname };
   }
   // A server bound to one specific interface does not answer on loopback, so
   // the proxy has to target that interface directly.
@@ -160,15 +192,46 @@ export const formatPairOutput = (input: {
     "",
   ].join("\n");
 
-const probeEnvironmentDescriptor = (baseUrl: string) =>
+/**
+ * Three outcomes, because they drive different decisions: a T3 descriptor
+ * (pair with it), nothing answering (safe to configure Tailscale Serve), or
+ * something answering that is not a T3 server (do NOT overwrite its mapping).
+ */
+type EnvironmentProbeResult =
+  | { readonly _tag: "descriptor"; readonly descriptor: ExecutionEnvironmentDescriptor }
+  | { readonly _tag: "unreachable" }
+  | { readonly _tag: "not-a-t3-server" };
+
+const probeEnvironmentDescriptor = (
+  baseUrl: string,
+): Effect.Effect<EnvironmentProbeResult, never, HttpClient.HttpClient> =>
   Effect.gen(function* () {
     const client = yield* HttpClient.HttpClient;
     const request = HttpClientRequest.get(new URL(WELL_KNOWN_ENVIRONMENT_PATH, baseUrl).toString());
-    const response = yield* client
-      .execute(request)
-      .pipe(Effect.flatMap(HttpClientResponse.filterStatusOk));
-    return yield* HttpClientResponse.schemaBodyJson(ExecutionEnvironmentDescriptor)(response);
-  }).pipe(Effect.timeout(PAIR_PROBE_TIMEOUT), Effect.option);
+    const response = yield* client.execute(request).pipe(
+      Effect.timeout(PAIR_PROBE_TIMEOUT),
+      // Transport failure or timeout: nothing (reachable) is listening there.
+      Effect.mapError(() => ({ _tag: "unreachable" }) as const),
+    );
+    // Anything that answered HTTP but not with a valid descriptor is some
+    // other service.
+    const descriptor = yield* HttpClientResponse.filterStatusOk(response).pipe(
+      Effect.flatMap(HttpClientResponse.schemaBodyJson(ExecutionEnvironmentDescriptor)),
+      Effect.mapError(() => ({ _tag: "not-a-t3-server" }) as const),
+    );
+    return { _tag: "descriptor", descriptor } as const;
+  }).pipe(Effect.catch((outcome) => Effect.succeed(outcome)));
+
+// signal 0 delivers nothing; it only reports whether the pid exists. EPERM
+// means it exists but belongs to another user, which still counts as alive.
+const isProcessAlive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error instanceof Error && "code" in error && error.code === "EPERM";
+  }
+};
 
 interface DiscoveredPairTarget {
   readonly baseDir: string;
@@ -209,15 +272,21 @@ const discoverPairTarget = Effect.fn("pair.discoverPairTarget")(function* (
       if (Option.isNone(state)) {
         continue;
       }
-      const descriptor = yield* probeEnvironmentDescriptor(state.value.origin);
-      if (Option.isNone(descriptor)) {
+      // The pid check guards against a dead server's state file whose port
+      // was since reused by a different server: pairing would then mint a
+      // token in the old database while the QR code points at the new server.
+      if (!isProcessAlive(state.value.pid)) {
+        continue;
+      }
+      const probed = yield* probeEnvironmentDescriptor(state.value.origin);
+      if (probed._tag !== "descriptor") {
         continue;
       }
       return {
         baseDir,
         variant,
         state: state.value,
-        descriptor: descriptor.value,
+        descriptor: probed.descriptor,
       } satisfies DiscoveredPairTarget;
     }
   }
@@ -279,63 +348,63 @@ const makePairServerConfig = Effect.fn(function* (input: {
 });
 
 const awaitEnvironmentDescriptor = Effect.fn(function* (baseUrl: string) {
+  let last: EnvironmentProbeResult = { _tag: "unreachable" };
   for (let attempt = 0; attempt < TAILSCALE_PROBE_ATTEMPTS; attempt += 1) {
-    const probed = yield* probeEnvironmentDescriptor(baseUrl);
-    if (Option.isSome(probed)) {
-      return probed;
+    last = yield* probeEnvironmentDescriptor(baseUrl);
+    if (last._tag === "descriptor") {
+      return last;
     }
     yield* Effect.sleep(TAILSCALE_PROBE_RETRY_DELAY);
   }
-  return Option.none<ExecutionEnvironmentDescriptor>();
+  return last;
 });
 
 const resolveTailscalePairingBase = Effect.fn("pair.resolveTailscalePairingBase")(
   function* (input: { readonly target: DiscoveredPairTarget; readonly servePort: number }) {
     const notes: Array<string> = [];
     const status = yield* readTailscaleStatus.pipe(
-      Effect.mapError(
-        (cause) =>
-          new PairTailscaleError({
-            reason: "status-unavailable",
-            servePort: input.servePort,
-            cause,
-          }),
-      ),
+      Effect.mapError((cause) => new TailscaleUnavailableError({ cause })),
     );
     if (status.magicDnsName === null) {
-      return yield* new PairTailscaleError({
-        reason: "magicdns-missing",
-        servePort: input.servePort,
-      });
+      return yield* new MagicDnsNameMissingError();
     }
     const baseUrl = buildTailscaleHttpsBaseUrl({
       magicDnsName: status.magicDnsName,
       servePort: input.servePort,
     });
 
-    // If the HTTPS port already reaches this exact server, there is nothing to
-    // configure. If it reaches a different T3 Code server, refuse: silently
-    // replacing that mapping would break whatever is pairing through it.
+    // Only an unreachable port, or a mapping already fronting this exact
+    // environment, is safe to (re)configure. Any other responder — T3 or not
+    // — must not have its mapping silently replaced.
     const existing = yield* probeEnvironmentDescriptor(baseUrl);
-    if (Option.isSome(existing)) {
-      if (existing.value.environmentId === input.target.descriptor.environmentId) {
+    if (existing._tag === "descriptor") {
+      if (existing.descriptor.environmentId !== input.target.descriptor.environmentId) {
+        return yield* new ServesOtherEnvironmentError({ servePort: input.servePort });
+      }
+      // Matching environment id proves the mapping reaches this server, but
+      // not through which port: for a dev server it may front the backend
+      // (whose /.well-known also answers) while /pair only renders through
+      // the web origin. Reuse as-is for regular servers; fall through and
+      // repoint our own mapping at the web port for dev servers.
+      if (input.target.state.devUrl === undefined) {
         return { baseUrl, notes };
       }
-      return yield* new PairTailscaleError({
-        reason: "serves-other-environment",
-        servePort: input.servePort,
-      });
+    }
+    if (existing._tag === "not-a-t3-server") {
+      return yield* new ServePortOccupiedError({ servePort: input.servePort });
     }
 
     const localTarget = resolveTailscaleLocalTarget(input.target.state);
+    if (isDevServerNotProxiableError(localTarget)) {
+      return yield* localTarget;
+    }
     yield* ensureTailscaleServe({
       localPort: localTarget.localPort,
       servePort: input.servePort,
       ...(localTarget.localHost !== undefined ? { localHost: localTarget.localHost } : {}),
     }).pipe(
       Effect.mapError(
-        (cause) =>
-          new PairTailscaleError({ reason: "serve-failed", servePort: input.servePort, cause }),
+        (cause) => new TailscaleServeFailedError({ servePort: input.servePort, cause }),
       ),
     );
     notes.push(
@@ -343,15 +412,14 @@ const resolveTailscalePairingBase = Effect.fn("pair.resolveTailscalePairingBase"
     );
 
     const probed = yield* awaitEnvironmentDescriptor(baseUrl);
-    if (Option.isNone(probed)) {
+    if (probed._tag === "descriptor") {
+      if (probed.descriptor.environmentId !== input.target.descriptor.environmentId) {
+        return yield* new ServesOtherEnvironmentError({ servePort: input.servePort });
+      }
+    } else {
       notes.push(
         "The HTTPS endpoint has not answered yet. First use can take a moment while Tailscale provisions certificates.",
       );
-    } else if (probed.value.environmentId !== input.target.descriptor.environmentId) {
-      return yield* new PairTailscaleError({
-        reason: "serves-other-environment",
-        servePort: input.servePort,
-      });
     }
     return { baseUrl, notes };
   },

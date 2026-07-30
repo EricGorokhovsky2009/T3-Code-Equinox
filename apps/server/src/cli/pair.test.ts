@@ -18,7 +18,11 @@ import {
   persistServerRuntimeState,
   type PersistedServerRuntimeState,
 } from "../serverRuntimeState.ts";
-import { resolveDirectPairingBaseUrl, resolveTailscaleLocalTarget } from "./pair.ts";
+import {
+  DevServerNotProxiableError,
+  resolveDirectPairingBaseUrl,
+  resolveTailscaleLocalTarget,
+} from "./pair.ts";
 
 const CliRuntimeLayer = Layer.mergeAll(NodeServices.layer, NetService.layer);
 
@@ -50,6 +54,17 @@ describe("pair tailscale local target", () => {
     expect(resolveTailscaleLocalTarget({ ...baseState, devUrl: "http://localhost:5733/" })).toEqual(
       { localPort: 5_733 },
     );
+    // A dev server on a non-loopback interface must be proxied at that
+    // interface; tailscale serve defaults to 127.0.0.1 otherwise.
+    expect(
+      resolveTailscaleLocalTarget({ ...baseState, devUrl: "http://192.168.1.10:5733/" }),
+    ).toEqual({ localPort: 5_733, localHost: "192.168.1.10" });
+  });
+
+  it("rejects HTTPS dev URLs, which tailscale serve cannot proxy", () => {
+    expect(
+      resolveTailscaleLocalTarget({ ...baseState, devUrl: "https://localhost:5733/" }),
+    ).toBeInstanceOf(DevServerNotProxiableError);
   });
 
   it("proxies the backend port directly otherwise", () => {
@@ -190,6 +205,36 @@ describe("t3 pair", () => {
       assert.include(rendered, "npx t3 serve");
       assert.include(rendered, "npx t3 connect");
     }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("ignores runtime state whose recorded pid is no longer alive", () =>
+    withDescriptorServer((origin) =>
+      Effect.gen(function* () {
+        const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pair-pid-test-"));
+        const statePath = NodePath.join(baseDir, "userdata", "server-runtime.json");
+        // The origin answers (another server reused the port), but the pid
+        // that wrote this state file is dead — pairing must not mint a token
+        // into the dead server's database.
+        const state = yield* makePersistedServerRuntimeState({
+          config: { host: "127.0.0.1", devUrl: undefined },
+          port: Number(new URL(origin).port),
+        });
+        yield* persistServerRuntimeState({
+          path: statePath,
+          // pid 2**22 + 1 exceeds any default Linux/macOS pid range.
+          state: { ...state, pid: 4_194_305 },
+        });
+
+        const error = yield* provideCliTestLayers(
+          runCli(["pair", "--base-dir", baseDir]).pipe(Effect.flip),
+        );
+
+        const rendered = String(
+          typeof error === "object" && error !== null && "cause" in error ? error.cause : error,
+        );
+        assert.include(rendered, "No running T3 Code server found.");
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
   );
 
   it.effect("ignores stale runtime state pointing at a dead server", () =>
