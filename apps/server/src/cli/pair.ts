@@ -213,8 +213,15 @@ const probeEnvironmentDescriptor = (
       // Transport failure or timeout: nothing (reachable) is listening there.
       Effect.mapError(() => ({ _tag: "unreachable" }) as const),
     );
-    // Anything that answered HTTP but not with a valid descriptor is some
-    // other service.
+    // Bad-gateway family means a proxy (Tailscale Serve) answered for a
+    // backend that is gone — a stale mapping, not a live occupant. Treating
+    // it as unreachable lets `t3 pair --tailscale` repair its own mapping
+    // after the server's port changed.
+    if (response.status === 502 || response.status === 503 || response.status === 504) {
+      return { _tag: "unreachable" } as const;
+    }
+    // Anything else that answered HTTP but not with a valid descriptor is
+    // some other service.
     const descriptor = yield* HttpClientResponse.filterStatusOk(response).pipe(
       Effect.flatMap(HttpClientResponse.schemaBodyJson(ExecutionEnvironmentDescriptor)),
       Effect.mapError(() => ({ _tag: "not-a-t3-server" }) as const),

@@ -59,6 +59,10 @@ describe("pair tailscale local target", () => {
     expect(
       resolveTailscaleLocalTarget({ ...baseState, devUrl: "http://192.168.1.10:5733/" }),
     ).toEqual({ localPort: 5_733, localHost: "192.168.1.10" });
+    // URL.hostname keeps IPv6 brackets, so the serve target stays valid.
+    expect(
+      resolveTailscaleLocalTarget({ ...baseState, devUrl: "http://[fd7a:115c::1]:5733/" }),
+    ).toEqual({ localPort: 5_733, localHost: "[fd7a:115c::1]" });
   });
 
   it("rejects HTTPS dev URLs, which tailscale serve cannot proxy", () => {
