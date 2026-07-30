@@ -47,11 +47,50 @@ export const THREAD_SWIPE_SPRING = {
   stiffness: 330,
 };
 
-interface ThreadSwipePrimaryAction {
+interface ThreadSwipeAction {
   readonly accessibilityLabel: string;
   readonly icon: ComponentProps<typeof SymbolView>["name"];
   readonly label: string;
   readonly onPress: () => void;
+}
+
+interface ThreadSwipeSecondaryAction extends ThreadSwipeAction {
+  readonly backgroundColor: string;
+}
+
+function swipeActionsWidth(hasSecondaryAction: boolean) {
+  return hasSecondaryAction ? THREAD_SWIPE_ACTIONS_WIDTH : ACTION_ITEM_WIDTH;
+}
+
+/** `undefined` keeps the v1 Delete default; `null` means one action only. */
+function resolveSecondaryAction(input: {
+  readonly close: () => void;
+  readonly onDelete: () => void;
+  readonly secondaryAction: ThreadSwipeAction | null | undefined;
+  readonly threadTitle: string;
+}): ThreadSwipeSecondaryAction | null {
+  if (input.secondaryAction === null) return null;
+  if (input.secondaryAction === undefined) {
+    return {
+      accessibilityLabel: `Delete ${input.threadTitle}`,
+      backgroundColor: "#ff2d55",
+      icon: "trash",
+      label: "Delete",
+      onPress: () => {
+        input.close();
+        input.onDelete();
+      },
+    };
+  }
+  const action = input.secondaryAction;
+  return {
+    ...action,
+    backgroundColor: "#5856d6",
+    onPress: () => {
+      input.close();
+      action.onPress();
+    },
+  };
 }
 
 /**
@@ -183,7 +222,13 @@ export function ThreadSwipeable(props: {
   readonly onDelete: () => void;
   readonly onSwipeableClose?: (methods: SwipeableMethods) => void;
   readonly onSwipeableWillOpen?: (methods: SwipeableMethods) => void;
-  readonly primaryAction: ThreadSwipePrimaryAction;
+  readonly primaryAction: ThreadSwipeAction;
+  /**
+   * Omitted keeps the v1 destructive Delete action. Explicit null opts out of
+   * a secondary action entirely so a gated Snooze can never fall back to an
+   * unadvertised Delete.
+   */
+  readonly secondaryAction?: ThreadSwipeAction | null;
   /**
    * Identity of the content being wrapped. When a recycled list reuses this
    * component for a different item, the swipeable snaps back to closed so an
@@ -197,7 +242,10 @@ export function ThreadSwipeable(props: {
 }) {
   const swipeableRef = useRef<SwipeableMethods | null>(null);
   const fullSwipeArmedRef = useRef(false);
-  const fullSwipeThreshold = Math.max(THREAD_SWIPE_ACTIONS_WIDTH + 44, props.fullSwipeWidth * 0.58);
+  const hasSecondaryAction = props.secondaryAction !== null;
+  const actionsWidth = swipeActionsWidth(hasSecondaryAction);
+  const fullSwipeThreshold = Math.max(actionsWidth + 44, props.fullSwipeWidth * 0.58);
+  const fullSwipeAction = hasSecondaryAction ? (props.fullSwipeAction ?? "delete") : "primary";
   const close = useCallback(() => swipeableRef.current?.close(), []);
   const gateEnabled = use(SwipeableScrollGateContext);
   const resetKey = props.resetKey;
@@ -251,7 +299,7 @@ export function ThreadSwipeable(props: {
         if (fullSwipeArmedRef.current) {
           fullSwipeArmedRef.current = false;
           methods.close();
-          if (props.fullSwipeAction === "primary") {
+          if (fullSwipeAction === "primary") {
             props.primaryAction.onPress();
           } else {
             props.onDelete();
@@ -264,9 +312,8 @@ export function ThreadSwipeable(props: {
         <ThreadSwipeActions
           backgroundColor={props.backgroundColor}
           compact={props.compactActions === true}
-          fullSwipeAction={props.fullSwipeAction ?? "delete"}
+          fullSwipeAction={fullSwipeAction}
           fullSwipeThreshold={fullSwipeThreshold}
-          onDelete={props.onDelete}
           onFullSwipeArmedChange={handleFullSwipeArmedChange}
           primaryAction={{
             ...props.primaryAction,
@@ -275,12 +322,16 @@ export function ThreadSwipeable(props: {
               props.primaryAction.onPress();
             },
           }}
-          swipeableMethods={methods}
-          threadTitle={props.threadTitle}
+          secondaryAction={resolveSecondaryAction({
+            close: () => methods.close(),
+            onDelete: props.onDelete,
+            secondaryAction: props.secondaryAction,
+            threadTitle: props.threadTitle,
+          })}
           translation={translation}
         />
       )}
-      rightThreshold={THREAD_SWIPE_ACTIONS_WIDTH * 0.42}
+      rightThreshold={actionsWidth * 0.42}
       simultaneousWithExternalGesture={props.simultaneousWithExternalGesture}
     >
       {props.children(close)}
@@ -290,6 +341,7 @@ export function ThreadSwipeable(props: {
 
 function SwipeActionButton(props: {
   readonly accessibilityLabel: string;
+  readonly actionsWidth: number;
   readonly backgroundColor: string;
   readonly compact: boolean;
   readonly entryRange: readonly [number, number];
@@ -305,10 +357,10 @@ function SwipeActionButton(props: {
   const actionStyle = useAnimatedStyle(() => {
     const reveal = Math.max(-props.translation.value, 0);
     const entryProgress = interpolate(reveal, props.entryRange, [0, 1], Extrapolation.CLAMP);
-    const stretch = Math.max(reveal - THREAD_SWIPE_ACTIONS_WIDTH, 0);
+    const stretch = Math.max(reveal - props.actionsWidth, 0);
     const fullSwipeProgress = interpolate(
       reveal,
-      [THREAD_SWIPE_ACTIONS_WIDTH, props.fullSwipeThreshold + 20],
+      [props.actionsWidth, props.fullSwipeThreshold + 20],
       [0, 1],
       Extrapolation.CLAMP,
     );
@@ -327,9 +379,7 @@ function SwipeActionButton(props: {
   });
   const circleStyle = useAnimatedStyle(() => {
     const reveal = Math.max(-props.translation.value, 0);
-    const stretch = props.stretchesOnFullSwipe
-      ? Math.max(reveal - THREAD_SWIPE_ACTIONS_WIDTH, 0)
-      : 0;
+    const stretch = props.stretchesOnFullSwipe ? Math.max(reveal - props.actionsWidth, 0) : 0;
 
     return {
       transform: [{ translateX: -stretch }],
@@ -338,9 +388,7 @@ function SwipeActionButton(props: {
   });
   const iconStyle = useAnimatedStyle(() => {
     const reveal = Math.max(-props.translation.value, 0);
-    const stretch = props.stretchesOnFullSwipe
-      ? Math.max(reveal - THREAD_SWIPE_ACTIONS_WIDTH, 0)
-      : 0;
+    const stretch = props.stretchesOnFullSwipe ? Math.max(reveal - props.actionsWidth, 0) : 0;
     const armedProgress = interpolate(
       reveal,
       [props.fullSwipeThreshold, props.fullSwipeThreshold + 20],
@@ -358,7 +406,7 @@ function SwipeActionButton(props: {
     }
 
     const reveal = Math.max(-props.translation.value, 0);
-    const stretch = Math.max(reveal - THREAD_SWIPE_ACTIONS_WIDTH, 0);
+    const stretch = Math.max(reveal - props.actionsWidth, 0);
     return {
       opacity: interpolate(
         reveal,
@@ -446,14 +494,14 @@ export function ThreadSwipeActions(props: {
   readonly compact: boolean;
   readonly fullSwipeAction?: "delete" | "primary";
   readonly fullSwipeThreshold: number;
-  readonly onDelete: () => void;
   readonly onFullSwipeArmedChange: (armed: boolean) => void;
-  readonly primaryAction: ThreadSwipePrimaryAction;
-  readonly swipeableMethods: SwipeableMethods;
-  readonly threadTitle: string;
+  readonly primaryAction: ThreadSwipeAction;
+  readonly secondaryAction: ThreadSwipeSecondaryAction | null;
   readonly translation: SharedValue<number>;
 }) {
-  const fullSwipeIsPrimary = props.fullSwipeAction === "primary";
+  const secondaryAction = props.secondaryAction;
+  const fullSwipeIsPrimary = props.fullSwipeAction === "primary" || secondaryAction === null;
+  const actionsWidth = swipeActionsWidth(secondaryAction !== null);
   useAnimatedReaction(
     () => -props.translation.value >= props.fullSwipeThreshold,
     (armed, previous) => {
@@ -470,14 +518,19 @@ export function ThreadSwipeActions(props: {
         backgroundColor: props.backgroundColor,
         flexDirection: "row",
         height: "100%",
-        width: THREAD_SWIPE_ACTIONS_WIDTH,
+        width: actionsWidth,
       }}
     >
       <SwipeActionButton
         accessibilityLabel={props.primaryAction.accessibilityLabel}
+        actionsWidth={actionsWidth}
         backgroundColor="#007aff"
         compact={props.compact}
-        entryRange={[ACTION_ITEM_WIDTH * 0.55, THREAD_SWIPE_ACTIONS_WIDTH * 0.85]}
+        entryRange={
+          secondaryAction === null
+            ? [8, ACTION_ITEM_WIDTH * 0.72]
+            : [ACTION_ITEM_WIDTH * 0.55, THREAD_SWIPE_ACTIONS_WIDTH * 0.85]
+        }
         fullSwipeThreshold={props.fullSwipeThreshold}
         icon={props.primaryAction.icon}
         label={props.primaryAction.label}
@@ -485,21 +538,21 @@ export function ThreadSwipeActions(props: {
         stretchesOnFullSwipe={fullSwipeIsPrimary}
         translation={props.translation}
       />
-      <SwipeActionButton
-        accessibilityLabel={`Delete ${props.threadTitle}`}
-        backgroundColor="#ff2d55"
-        compact={props.compact}
-        entryRange={[8, ACTION_ITEM_WIDTH * 0.72]}
-        fullSwipeThreshold={props.fullSwipeThreshold}
-        icon="trash"
-        label="Delete"
-        onPress={() => {
-          props.swipeableMethods.close();
-          props.onDelete();
-        }}
-        stretchesOnFullSwipe={!fullSwipeIsPrimary}
-        translation={props.translation}
-      />
+      {secondaryAction === null ? null : (
+        <SwipeActionButton
+          accessibilityLabel={secondaryAction.accessibilityLabel}
+          actionsWidth={actionsWidth}
+          backgroundColor={secondaryAction.backgroundColor}
+          compact={props.compact}
+          entryRange={[8, ACTION_ITEM_WIDTH * 0.72]}
+          fullSwipeThreshold={props.fullSwipeThreshold}
+          icon={secondaryAction.icon}
+          label={secondaryAction.label}
+          onPress={secondaryAction.onPress}
+          stretchesOnFullSwipe={!fullSwipeIsPrimary}
+          translation={props.translation}
+        />
+      )}
     </View>
   );
 }

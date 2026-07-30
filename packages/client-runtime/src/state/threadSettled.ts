@@ -272,3 +272,21 @@ export function effectiveSettled(
     Date.parse(lastActivityAt) < Date.parse(options.now) - options.autoSettleAfterDays * DAY_MS
   );
 }
+
+const HOUR_MS = 60 * 60 * 1_000;
+
+/**
+ * Compact "wakes in" label for snoozed rows: "2h", "18h", "3d". Minutes
+ * round up so a snooze never reads "0m" while still hidden. Shared by web
+ * and mobile so the same wake time never reads differently per client.
+ */
+export function snoozeWakeLabel(snoozedUntil: string, options: { readonly now: string }): string {
+  const wakeMs = Date.parse(snoozedUntil);
+  const nowMs = Date.parse(options.now);
+  if (Number.isNaN(wakeMs) || Number.isNaN(nowMs)) return "now";
+  const remainingMs = wakeMs - nowMs;
+  if (remainingMs <= 0) return "now";
+  if (remainingMs < HOUR_MS) return `${Math.max(1, Math.ceil(remainingMs / 60_000))}m`;
+  if (remainingMs < DAY_MS) return `${Math.ceil(remainingMs / HOUR_MS)}h`;
+  return `${Math.ceil(remainingMs / DAY_MS)}d`;
+}
