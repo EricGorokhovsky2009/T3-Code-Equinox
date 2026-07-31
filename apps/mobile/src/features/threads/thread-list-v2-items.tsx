@@ -64,6 +64,12 @@ const CARD_MENU_ACTIONS: MenuAction[] = [
   { id: "delete", title: "Delete", image: "trash", attributes: { destructive: true } },
 ];
 
+const SNOOZABLE_CARD_MENU_ACTIONS: MenuAction[] = [
+  { id: "settle", title: "Settle", image: "checkmark" },
+  { id: "snooze", title: "Snooze 1h", image: "clock" },
+  { id: "delete", title: "Delete", image: "trash", attributes: { destructive: true } },
+];
+
 const SLIM_MENU_ACTIONS: MenuAction[] = [
   { id: "unsettle", title: "Un-settle", image: "arrow.uturn.backward" },
   { id: "delete", title: "Delete", image: "trash", attributes: { destructive: true } },
@@ -354,11 +360,12 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     ({ nativeEvent }: { readonly nativeEvent: { readonly event: string } }) => {
       if (nativeEvent.event === "settle") handleSettle();
       if (nativeEvent.event === "unsettle") handleUnsettle();
+      if (nativeEvent.event === "snooze") handleSnooze();
       if (nativeEvent.event === "unsnooze") handleUnsnooze();
       if (nativeEvent.event === "archive") handleArchive();
       if (nativeEvent.event === "delete") handleDelete();
     },
-    [handleArchive, handleDelete, handleSettle, handleUnsettle, handleUnsnooze],
+    [handleArchive, handleDelete, handleSettle, handleSnooze, handleUnsettle, handleUnsnooze],
   );
 
   // Swipe: the v2 primary action is the lifecycle transition. Every settled
@@ -708,7 +715,9 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
                   ? LEGACY_MENU_ACTIONS
                   : canUnsettle
                     ? SLIM_MENU_ACTIONS
-                    : CARD_MENU_ACTIONS
+                    : swipeActions.secondary === "snooze"
+                      ? SNOOZABLE_CARD_MENU_ACTIONS
+                      : CARD_MENU_ACTIONS
             }
             onPressAction={handleMenuAction}
             shouldOpenOnLongPress
