@@ -336,7 +336,7 @@ async function install(
     throw new ForkUpdateError("untrusted-build", "The app was not produced by the fork updater.");
   }
   const marker = `${join(".t3", "fork-updater")}/`;
-  const repoPath = resolve(builtApp.slice(0, builtApp.indexOf(marker)));
+  const repoPath = builtApp.slice(0, builtApp.indexOf(marker));
   await resolveRepository(repoPath);
   await verifyForkBundle(builtApp, repoPath);
 
