@@ -7,7 +7,6 @@ import * as Scope from "effect/Scope";
 import * as Electron from "electron";
 
 export interface ElectronAppMetadata {
-  readonly appName?: string;
   readonly appVersion: string;
   readonly appPath: string;
   readonly isPackaged: boolean;
@@ -111,7 +110,6 @@ export const make = ElectronApp.of({
     });
 
     return {
-      appName: Electron.app.name,
       appVersion,
       appPath,
       isPackaged: Electron.app.isPackaged,

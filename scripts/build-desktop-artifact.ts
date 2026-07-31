@@ -606,17 +606,13 @@ interface ResolvedBuildOptions {
   readonly mockUpdates: boolean;
   readonly mockUpdateServerPort: number | undefined;
   readonly wslPrebuild: string | undefined;
-  readonly forkSourceRepository: string | undefined;
-  readonly forkDisplayName: string | undefined;
 }
 
 interface StagePackageJson {
   readonly name: string;
   readonly version: string;
   readonly buildVersion: string;
-  readonly productName: string;
   readonly t3codeCommitHash: string;
-  readonly t3codeForkSourceRepository?: string;
   readonly private: true;
   readonly packageManager: string;
   readonly description: string;
@@ -1044,8 +1040,6 @@ const BuildEnvConfig = Config.all({
   // into the staged node-pty so the WSL backend ships a ready binary and never
   // compiles on the user's machine.
   wslPrebuild: Config.string("T3CODE_DESKTOP_WSL_PREBUILD").pipe(Config.option),
-  forkSourceRepository: Config.string("T3CODE_FORK_SOURCE_REPOSITORY").pipe(Config.option),
-  forkDisplayName: Config.string("T3CODE_FORK_DISPLAY_NAME").pipe(Config.option),
 });
 
 const MockUpdateServerPortSchema = Schema.NumberFromString.check(
@@ -1139,8 +1133,6 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
 
   const wslPrebuild =
     Option.getOrUndefined(input.wslPrebuild) ?? Option.getOrUndefined(env.wslPrebuild);
-  const forkSourceRepository = Option.getOrUndefined(env.forkSourceRepository)?.trim() || undefined;
-  const forkDisplayName = Option.getOrUndefined(env.forkDisplayName)?.trim() || undefined;
 
   return {
     platform,
@@ -1155,8 +1147,6 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
     mockUpdates,
     mockUpdateServerPort,
     wslPrebuild,
-    forkSourceRepository,
-    forkDisplayName,
   } satisfies ResolvedBuildOptions;
 });
 
@@ -1544,11 +1534,10 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
         readonly provisioningProfilePath: string;
       }
     | undefined,
-  productName = resolveDesktopProductName(version),
 ) {
   const buildConfig: Record<string, unknown> = {
     appId: DESKTOP_APP_ID,
-    productName,
+    productName: resolveDesktopProductName(version),
     artifactName: "T3-Code-${version}-${arch}.${ext}",
     electronLanguages: [...DESKTOP_ELECTRON_LANGUAGES],
     files: [...DESKTOP_FILE_EXCLUSIONS],
@@ -1926,11 +1915,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     name: "t3code",
     version: appVersion,
     buildVersion: appVersion,
-    productName: options.forkDisplayName ?? resolveDesktopProductName(appVersion),
     t3codeCommitHash: commitHash,
-    ...(options.forkSourceRepository
-      ? { t3codeForkSourceRepository: options.forkSourceRepository }
-      : {}),
     private: true,
     packageManager: rootPackageJson.packageManager,
     description: "T3 Code desktop build",
@@ -1949,7 +1934,6 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
             provisioningProfilePath: macPasskeySigning.provisioningProfilePath,
           }
         : undefined,
-      options.forkDisplayName ?? resolveDesktopProductName(appVersion),
     ),
     dependencies: stageDependencies,
     devDependencies: {
@@ -2079,14 +2063,10 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   for (const entry of stageEntries) {
     const from = path.join(stageDistDir, entry);
     const stat = yield* fs.stat(from).pipe(Effect.orElseSucceed(() => null));
-    if (!stat || (stat.type !== "File" && stat.type !== "Directory")) continue;
+    if (!stat || stat.type !== "File") continue;
 
     const to = path.join(options.outputDir, entry);
-    if (stat.type === "Directory") {
-      yield* fs.copy(from, to);
-    } else {
-      yield* fs.copyFile(from, to);
-    }
+    yield* fs.copyFile(from, to);
     copiedArtifacts.push(to);
   }
 

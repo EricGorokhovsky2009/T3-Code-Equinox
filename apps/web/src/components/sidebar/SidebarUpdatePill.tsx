@@ -169,16 +169,14 @@ export function SidebarUpdatePill() {
                   {action === "install" ? (
                     <>
                       <RotateCwIcon className="size-3.5" />
-                      <span>
-                        {state?.updateKind === "source" ? "Restart with fork" : "Restart to update"}
-                      </span>
+                      <span>Restart to update</span>
                     </>
                   ) : state?.status === "downloading" ? (
                     <>
                       <DownloadIcon className="size-3.5" />
                       <span>
-                        {state?.updateKind === "source" ? "Updating fork" : "Downloading"}
-                        {state?.updateKind !== "source" && typeof state.downloadPercent === "number"
+                        Downloading
+                        {typeof state.downloadPercent === "number"
                           ? ` (${Math.floor(state.downloadPercent)}%)`
                           : "…"}
                       </span>
@@ -186,11 +184,7 @@ export function SidebarUpdatePill() {
                   ) : (
                     <>
                       <DownloadIcon className="size-3.5" />
-                      <span>
-                        {state?.updateKind === "source"
-                          ? "Fork update available"
-                          : "Update available"}
-                      </span>
+                      <span>Update available</span>
                     </>
                   )}
                 </button>

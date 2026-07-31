@@ -23,7 +23,7 @@ import {
   type ScopedThreadRef,
   type SidebarProjectGroupingMode,
 } from "@t3tools/contracts";
-import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
 import {
   isAtomCommandInterrupted,
@@ -64,12 +64,7 @@ import {
 import { isElectron } from "../../env";
 import { buildHostedChannelSelectionUrl, type HostedAppChannel } from "../../hostedPairing";
 import { useTheme } from "../../hooks/useTheme";
-import {
-  useClientSettings,
-  usePrimarySettings,
-  useUpdatePrimarySettings,
-} from "../../hooks/useSettings";
-import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
+import { usePrimarySettings, useUpdatePrimarySettings } from "../../hooks/useSettings";
 import { useThreadActions } from "../../hooks/useThreadActions";
 import { useDesktopUpdateState } from "../../state/desktopUpdate";
 import {
@@ -89,11 +84,6 @@ import {
 } from "../../state/server";
 import { usePrimaryEnvironment } from "../../state/environments";
 import { useProjects } from "../../state/entities";
-import { useComposerDraftStore } from "../../composerDraftStore";
-import {
-  deriveLogicalProjectKeyFromSettings,
-  selectProjectGroupingSettings,
-} from "../../logicalProject";
 import { useArchivedThreadSnapshots } from "../../lib/archivedThreadsState";
 import { formatRelativeTimeLabel, getRelativeTimeState } from "../../timestampFormat";
 import { Button } from "../ui/button";
@@ -358,22 +348,10 @@ function AboutVersionTitle() {
 function AboutVersionSection() {
   const updateState = useDesktopUpdateState();
   const [isChangingUpdateChannel, setIsChangingUpdateChannel] = useState(false);
-  const [isStartingConflictThread, setIsStartingConflictThread] = useState(false);
-  const projects = useProjects();
-  const handleNewThread = useNewThreadHandler();
-  const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
 
   const hasDesktopBridge = typeof window !== "undefined" && Boolean(window.desktopBridge);
   const selectedUpdateChannel = updateState?.channel ?? "latest";
   const selectedHostedAppChannel = hasDesktopBridge ? null : HOSTED_APP_CHANNEL;
-  const sourceProject = useMemo(
-    () =>
-      updateState?.sourceRepositoryPath
-        ? (projects.find((project) => project.workspaceRoot === updateState.sourceRepositoryPath) ??
-          null)
-        : null,
-    [projects, updateState?.sourceRepositoryPath],
-  );
 
   const handleUpdateChannelChange = useCallback(
     (channel: DesktopUpdateChannel) => {
@@ -470,75 +448,23 @@ function AboutVersionSection() {
       });
   }, [updateState]);
 
-  const handleFixMergeConflicts = useCallback(() => {
-    if (!sourceProject || !updateState?.sourceRepositoryPath) return;
-    setIsStartingConflictThread(true);
-    const projectRef = scopeProjectRef(sourceProject.environmentId, sourceProject.id);
-    const logicalProjectKey = deriveLogicalProjectKeyFromSettings(
-      sourceProject,
-      projectGroupingSettings,
-    );
-    void handleNewThread(projectRef, { envMode: "local", replace: true })
-      .then(() => {
-        const store = useComposerDraftStore.getState();
-        const draft = store.getDraftSessionByLogicalProjectKey(logicalProjectKey);
-        if (!draft) return;
-        const conflictList = (updateState.sourceConflictFiles ?? [])
-          .map((path) => `- ${path}`)
-          .join("\n");
-        store.setPrompt(
-          draft.draftId,
-          [
-            "Resolve the interrupted upstream merge in this T3 Code fork.",
-            "",
-            `Repository: ${updateState.sourceRepositoryPath}`,
-            "Preserve our custom features while integrating the official upstream changes.",
-            "Inspect the merge state, resolve every conflict, run focused verification, commit the merge, rebuild the fork app, and push main to origin.",
-            conflictList ? `\nConflicted files:\n${conflictList}` : "",
-          ]
-            .filter(Boolean)
-            .join("\n"),
-        );
-      })
-      .catch((error: unknown) => {
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: "Could not start conflict-resolution thread",
-            description: error instanceof Error ? error.message : "Thread creation failed.",
-          }),
-        );
-      })
-      .finally(() => {
-        setIsStartingConflictThread(false);
-      });
-  }, [handleNewThread, projectGroupingSettings, sourceProject, updateState]);
-
   const action = updateState ? resolveDesktopUpdateButtonAction(updateState) : "none";
-  const isSourceUpdate = updateState?.updateKind === "source";
   const buttonTooltip = updateState ? getDesktopUpdateButtonTooltip(updateState) : null;
   const buttonDisabled =
     action === "none"
       ? !canCheckForUpdate(updateState)
       : isDesktopUpdateButtonDisabled(updateState);
 
-  const actionLabel: Record<string, string> = {
-    download: isSourceUpdate ? "Update Fork" : "Download",
-    install: "Restart & Install",
-  };
+  const actionLabel: Record<string, string> = { download: "Download", install: "Install" };
   const statusLabel: Record<string, string> = {
     checking: "Checking…",
-    downloading: isSourceUpdate ? "Updating Fork…" : "Downloading…",
-    "up-to-date": isSourceUpdate ? "Fork Up to Date" : "Up to Date",
+    downloading: "Downloading…",
+    "up-to-date": "Up to Date",
   };
   const buttonLabel =
-    actionLabel[action] ??
-    statusLabel[updateState?.status ?? ""] ??
-    (isSourceUpdate ? "Check Upstream" : "Check for Updates");
-  const description = isSourceUpdate
-    ? (updateState?.message ??
-      "Built from EricGorokhovsky2009/T3Code and synchronized with official T3 Code.")
-    : action === "download" || action === "install"
+    actionLabel[action] ?? statusLabel[updateState?.status ?? ""] ?? "Check for Updates";
+  const description =
+    action === "download" || action === "install"
       ? "Update available."
       : "Current version of the application.";
 
@@ -565,41 +491,7 @@ function AboutVersionSection() {
           </Tooltip>
         }
       />
-      {hasDesktopBridge && isSourceUpdate ? (
-        <>
-          <SettingsRow
-            title="Update source"
-            description="Official changes merge into your custom main branch before T3 Code is rebuilt. Official release binaries are never downloaded."
-            control={
-              <div className="max-w-64 text-right font-mono text-[11px] text-muted-foreground">
-                <div>EricGorokhovsky2009/T3Code</div>
-                <div>
-                  {updateState?.sourceCurrentCommit?.slice(0, 12) ?? "unknown"} →{" "}
-                  {updateState?.sourceUpstreamCommit?.slice(0, 12) ?? "unknown"}
-                </div>
-              </div>
-            }
-          />
-          {(updateState?.sourceConflictFiles?.length ?? 0) > 0 ? (
-            <SettingsRow
-              title="Merge needs attention"
-              description={`${updateState?.sourceConflictFiles?.length ?? 0} conflicted file${
-                updateState?.sourceConflictFiles?.length === 1 ? "" : "s"
-              }. Your custom changes and upstream changes are both still present.`}
-              control={
-                <Button
-                  size="xs"
-                  variant="outline"
-                  disabled={!sourceProject || isStartingConflictThread}
-                  onClick={handleFixMergeConflicts}
-                >
-                  {isStartingConflictThread ? "Starting…" : "Fix with AI"}
-                </Button>
-              }
-            />
-          ) : null}
-        </>
-      ) : hasDesktopBridge ? (
+      {hasDesktopBridge ? (
         <SettingsRow
           title="Update track"
           description="Stable follows full releases. Nightly follows the nightly desktop channel and can switch back to stable immediately."

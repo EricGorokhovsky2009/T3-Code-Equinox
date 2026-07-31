@@ -16,7 +16,6 @@ import * as DesktopConfig from "./DesktopConfig.ts";
 import { isNightlyDesktopVersion } from "../updates/updateChannels.ts";
 
 export interface MakeDesktopEnvironmentInput {
-  readonly appName?: string;
   readonly dirname: string;
   readonly homeDirectory: string;
   readonly platform: NodeJS.Platform;
@@ -93,16 +92,8 @@ function resolveDesktopAppStageLabel(input: {
 function resolveDesktopAppBranding(input: {
   readonly isDevelopment: boolean;
   readonly appVersion: string;
-  readonly appName?: string;
 }): DesktopAppBranding {
   const stageLabel = resolveDesktopAppStageLabel(input);
-  if (!input.isDevelopment && input.appName === APP_BASE_NAME) {
-    return {
-      baseName: APP_BASE_NAME,
-      stageLabel,
-      displayName: APP_BASE_NAME,
-    };
-  }
   return {
     baseName: APP_BASE_NAME,
     stageLabel,
@@ -163,7 +154,6 @@ const make = Effect.fn("desktop.environment.make")(function* (
   const branding = resolveDesktopAppBranding({
     isDevelopment,
     appVersion: input.appVersion,
-    ...(input.appName === undefined ? {} : { appName: input.appName }),
   });
   const displayName = branding.displayName;
   const stateDir = path.join(

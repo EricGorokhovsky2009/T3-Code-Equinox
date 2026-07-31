@@ -16,7 +16,6 @@ import * as TestClock from "effect/testing/TestClock";
 import * as DesktopBackendPool from "../backend/DesktopBackendPool.ts";
 import * as DesktopConfig from "../app/DesktopConfig.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
-import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as ElectronUpdater from "../electron/ElectronUpdater.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
@@ -97,27 +96,6 @@ function makeHarness(options: UpdatesHarnessOptions = {}) {
       ).pipe(Effect.asVoid),
   } satisfies ElectronUpdater.ElectronUpdater["Service"]);
 
-  const appLayer = Layer.succeed(ElectronApp.ElectronApp, {
-    metadata: Effect.die("unexpected app metadata read"),
-    name: Effect.succeed("T3 Code"),
-    whenReady: Effect.void,
-    quit: Effect.void,
-    exit: () => Effect.void,
-    relaunch: () => Effect.void,
-    setPath: () => Effect.void,
-    setName: () => Effect.void,
-    setAboutPanelOptions: () => Effect.void,
-    setAppUserModelId: () => Effect.void,
-    getAppMetrics: Effect.succeed([]),
-    isDefaultProtocolClient: () => Effect.succeed(false),
-    setAsDefaultProtocolClient: () => Effect.succeed(false),
-    setDesktopName: () => Effect.void,
-    setDockIcon: () => Effect.void,
-    appendCommandLineSwitch: () => Effect.void,
-    onBeforeQuitForUpdate: () => Effect.void,
-    on: () => Effect.void,
-  } satisfies ElectronApp.ElectronApp["Service"]);
-
   const windowLayer = Layer.succeed(ElectronWindow.ElectronWindow, {
     create: () => Effect.die("unexpected BrowserWindow creation"),
     main: Effect.succeed(Option.none()),
@@ -194,7 +172,6 @@ function makeHarness(options: UpdatesHarnessOptions = {}) {
 
   const layer = DesktopUpdates.layer.pipe(
     Layer.provideMerge(updaterLayer),
-    Layer.provideMerge(appLayer),
     Layer.provideMerge(windowLayer),
     Layer.provideMerge(backendLayer),
     Layer.provideMerge(DesktopState.layer),

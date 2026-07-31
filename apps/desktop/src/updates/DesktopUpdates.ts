@@ -1,4 +1,3 @@
-// @effect-diagnostics nodeBuiltinImport:off - Fork builds launch the source checkout's host-side updater and survive the current Electron process.
 import {
   DesktopUpdateChannelSchema,
   type DesktopRuntimeInfo,
@@ -18,14 +17,10 @@ import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
-import { existsSync } from "node:fs";
-import { spawn } from "node:child_process";
-import { delimiter, join } from "node:path";
 
 import * as DesktopBackendPool from "../backend/DesktopBackendPool.ts";
 import * as DesktopConfig from "../app/DesktopConfig.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
-import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as DesktopObservability from "../app/DesktopObservability.ts";
 import * as DesktopState from "../app/DesktopState.ts";
 import * as ElectronUpdater from "../electron/ElectronUpdater.ts";
@@ -64,30 +59,9 @@ const UpdateInfo = Schema.Struct({
 const DownloadProgressInfo = Schema.Struct({
   percent: Schema.Number,
 });
-const ForkPackageMetadata = Schema.Struct({
-  t3codeForkSourceRepository: Schema.optional(Schema.String),
-});
-const ForkUpdateCommandResult = Schema.Struct({
-  status: Schema.String,
-  repositoryPath: Schema.optional(Schema.String),
-  currentCommit: Schema.optional(Schema.String),
-  upstreamCommit: Schema.optional(Schema.String),
-  behindCount: Schema.optional(Schema.Number),
-  aheadCount: Schema.optional(Schema.Number),
-  dirty: Schema.optional(Schema.Boolean),
-  dirtyEntries: Schema.optional(Schema.Array(Schema.String)),
-  appPath: Schema.optional(Schema.String),
-  conflictFiles: Schema.optional(Schema.Array(Schema.String)),
-  message: Schema.optional(Schema.String),
-  code: Schema.optional(Schema.String),
-});
 const decodeAppUpdateYmlConfig = Schema.decodeUnknownEffect(AppUpdateYmlConfig);
 const decodeUpdateInfo = Schema.decodeUnknownEffect(UpdateInfo);
 const decodeDownloadProgressInfo = Schema.decodeUnknownEffect(DownloadProgressInfo);
-const decodeForkPackageMetadata = Schema.decodeEffect(Schema.fromJsonString(ForkPackageMetadata));
-const decodeForkUpdateCommandResult = Schema.decodeUnknownEffect(
-  Schema.fromJsonString(ForkUpdateCommandResult),
-);
 
 const currentIsoTimestamp = DateTime.now.pipe(Effect.map(DateTime.formatIso));
 
@@ -221,65 +195,6 @@ function createBaseUpdateState(
   };
 }
 
-function resolveExecutable(name: string, homeDirectory: string): string | null {
-  const candidates = [
-    ...(process.env.PATH ?? "").split(delimiter).map((entry) => join(entry, name)),
-    join(homeDirectory, ".bun", "bin", name),
-    join("/opt/homebrew/bin", name),
-    join("/usr/local/bin", name),
-  ];
-  return candidates.find((candidate) => candidate.length > 0 && existsSync(candidate)) ?? null;
-}
-
-function runForkUpdateCommand(input: {
-  bunPath: string;
-  scriptPath: string;
-  args: ReadonlyArray<string>;
-  cwd: string;
-  detached?: boolean;
-}): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(input.bunPath, [input.scriptPath, ...input.args], {
-      cwd: input.cwd,
-      env: process.env,
-      detached: input.detached ?? false,
-      stdio: input.detached ? "ignore" : ["ignore", "pipe", "pipe"],
-    });
-    if (input.detached) {
-      child.unref();
-      resolve("");
-      return;
-    }
-    let output = "";
-    let stderr = "";
-    const append = (current: string, chunk: Buffer) =>
-      `${current}${chunk.toString()}`.slice(-1_000_000);
-    child.stdout?.on("data", (chunk: Buffer) => {
-      output = append(output, chunk);
-    });
-    child.stderr?.on("data", (chunk: Buffer) => {
-      stderr = append(stderr, chunk);
-    });
-    child.once("error", reject);
-    child.once("close", (code) => {
-      const jsonLine = output
-        .trim()
-        .split("\n")
-        .toReversed()
-        .find((line) => line.trim().startsWith("{"));
-      if (jsonLine) {
-        resolve(jsonLine);
-        return;
-      }
-      reject(
-        new Error(
-          stderr.trim() || output.trim() || `Fork updater exited with status ${code ?? "unknown"}.`,
-        ),
-      );
-    });
-  });
-}
-
 function getCanRetryFromState(state: DesktopUpdateState): boolean {
   return state.availableVersion !== null || state.downloadedVersion !== null;
 }
@@ -333,7 +248,6 @@ export const make = Effect.gen(function* () {
   const config = yield* DesktopConfig.DesktopConfig;
   const pool = yield* DesktopBackendPool.DesktopBackendPool;
   const desktopState = yield* DesktopState.DesktopState;
-  const electronApp = yield* ElectronApp.ElectronApp;
   const electronUpdater = yield* ElectronUpdater.ElectronUpdater;
   const electronWindow = yield* ElectronWindow.ElectronWindow;
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
@@ -353,8 +267,6 @@ export const make = Effect.gen(function* () {
       environment.defaultDesktopSettings.updateChannel,
     ),
   );
-  const forkSourceRepositoryRef = yield* Ref.make<Option.Option<string>>(Option.none());
-  const forkBuiltAppPathRef = yield* Ref.make<Option.Option<string>>(Option.none());
 
   const emitState = Ref.get(updateStateRef).pipe(
     Effect.flatMap((state) => electronWindow.sendAll(IpcChannels.UPDATE_STATE_CHANNEL, state)),
@@ -372,220 +284,6 @@ export const make = Effect.gen(function* () {
         return setState(nextState).pipe(Effect.as(nextState));
       }),
     );
-
-  const readForkSourceRepository = fileSystem
-    .readFileString(environment.path.join(environment.appRoot, "package.json"), "utf-8")
-    .pipe(
-      Effect.flatMap(decodeForkPackageMetadata),
-      Effect.map((metadata) =>
-        Option.fromNullishOr(metadata.t3codeForkSourceRepository).pipe(
-          Option.map((value) => value.trim()),
-          Option.filter((value) => value.length > 0),
-        ),
-      ),
-      Effect.orElseSucceed(() => Option.none<string>()),
-    );
-
-  const runForkUpdater = Effect.fn("desktop.updates.runForkUpdater")(function* (
-    action: "check" | "update",
-    repositoryPath: string,
-  ) {
-    const bunPath = resolveExecutable("bun", environment.homeDirectory);
-    if (!bunPath) {
-      return {
-        status: "error",
-        message: "Bun is required to update this T3 Code fork.",
-        code: "bun-not-found",
-      } satisfies typeof ForkUpdateCommandResult.Type;
-    }
-    const scriptPath = environment.path.join(repositoryPath, "scripts", "fork-self-update.ts");
-    const raw = yield* Effect.promise(() =>
-      runForkUpdateCommand({
-        bunPath,
-        scriptPath,
-        args: [action, "--repo", repositoryPath],
-        cwd: repositoryPath,
-      }).catch(() => null),
-    );
-    if (raw === null) {
-      return {
-        status: "error",
-        code: "updater-launch-failed",
-        message: "The fork updater could not be started.",
-      } satisfies typeof ForkUpdateCommandResult.Type;
-    }
-    return yield* decodeForkUpdateCommandResult(raw).pipe(
-      Effect.orElseSucceed(() => ({
-        status: "error",
-        code: "invalid-updater-response",
-        message: "The fork updater returned an invalid response.",
-      })),
-    );
-  });
-
-  const applyForkCommandState = (
-    result: typeof ForkUpdateCommandResult.Type,
-    checkedAt: string,
-  ): Effect.Effect<DesktopUpdateState> =>
-    updateState((current) => {
-      const common = {
-        ...current,
-        enabled: true,
-        updateKind: "source" as const,
-        checkedAt,
-        sourceRepositoryPath: result.repositoryPath ?? null,
-        sourceCurrentCommit: result.currentCommit ?? null,
-        sourceUpstreamCommit: result.upstreamCommit ?? null,
-        sourceBehindCount: result.behindCount ?? 0,
-        sourceAheadCount: result.aheadCount ?? 0,
-        sourceConflictFiles: result.conflictFiles ?? [],
-      };
-      if (result.status === "available") {
-        return {
-          ...common,
-          status: "available",
-          availableVersion: result.upstreamCommit?.slice(0, 12) ?? "upstream",
-          downloadedVersion: null,
-          message: result.dirty
-            ? "Upstream changes are available. Commit or stash local source changes before updating."
-            : "Official T3 Code changes are ready to merge into your fork.",
-          errorContext: null,
-          canRetry: false,
-        };
-      }
-      if (result.status === "built" && result.appPath) {
-        return {
-          ...common,
-          status: "downloaded",
-          availableVersion: result.upstreamCommit?.slice(0, 12) ?? "upstream",
-          downloadedVersion: result.currentCommit?.slice(0, 12) ?? "fork build",
-          message: "Your fork was merged, rebuilt, and pushed to GitHub. Restart to install it.",
-          errorContext: null,
-          canRetry: false,
-        };
-      }
-      if (result.status === "conflict") {
-        return {
-          ...common,
-          status: "error",
-          availableVersion: result.upstreamCommit?.slice(0, 12) ?? "upstream",
-          downloadedVersion: null,
-          message: result.message ?? "The upstream merge needs conflict resolution.",
-          errorContext: "download",
-          canRetry: false,
-        };
-      }
-      if (result.status === "error") {
-        return {
-          ...common,
-          status: "error",
-          message: result.message ?? "The fork update failed.",
-          errorContext: "download",
-          canRetry: true,
-        };
-      }
-      return {
-        ...common,
-        status: "up-to-date",
-        availableVersion: null,
-        downloadedVersion: null,
-        message:
-          result.dirty === true
-            ? "Your fork is current with upstream. Local source changes have not been built yet."
-            : null,
-        errorContext: null,
-        canRetry: false,
-      };
-    });
-
-  const checkForkSourceUpdates = Effect.fn("desktop.updates.checkForkSource")(function* (
-    repositoryPath: string,
-  ) {
-    if (yield* Ref.get(updateCheckInFlightRef)) return false;
-    yield* Ref.set(updateCheckInFlightRef, true);
-    const checkedAt = yield* currentIsoTimestamp;
-    yield* updateState((current) => ({
-      ...current,
-      status: "checking",
-      checkedAt,
-      message: "Checking official T3 Code for changes…",
-      errorContext: null,
-    }));
-    return yield* runForkUpdater("check", repositoryPath).pipe(
-      Effect.flatMap((result) => applyForkCommandState(result, checkedAt)),
-      Effect.as(true),
-      Effect.ensuring(Ref.set(updateCheckInFlightRef, false)),
-    );
-  });
-
-  const buildForkSourceUpdate = Effect.fn("desktop.updates.buildForkSource")(function* (
-    repositoryPath: string,
-  ) {
-    if (yield* Ref.get(updateDownloadInFlightRef)) {
-      return { accepted: false, completed: false };
-    }
-    yield* Ref.set(updateDownloadInFlightRef, true);
-    yield* updateState((current) => ({
-      ...current,
-      status: "downloading",
-      downloadPercent: null,
-      message: "Merging upstream, rebuilding T3 Code, and updating your GitHub fork…",
-      errorContext: null,
-      canRetry: false,
-    }));
-    return yield* runForkUpdater("update", repositoryPath).pipe(
-      Effect.flatMap((result) =>
-        Effect.gen(function* () {
-          if (result.status === "built" && result.appPath) {
-            yield* Ref.set(forkBuiltAppPathRef, Option.some(result.appPath));
-          }
-          const checkedAt = yield* currentIsoTimestamp;
-          yield* applyForkCommandState(result, checkedAt);
-          return {
-            accepted: true,
-            completed: result.status === "built",
-          };
-        }),
-      ),
-      Effect.ensuring(Ref.set(updateDownloadInFlightRef, false)),
-    );
-  });
-
-  const installForkSourceUpdate = Effect.fn("desktop.updates.installForkSource")(function* (
-    repositoryPath: string,
-  ) {
-    const builtApp = yield* Ref.get(forkBuiltAppPathRef);
-    const bunPath = resolveExecutable("bun", environment.homeDirectory);
-    if (Option.isNone(builtApp) || !bunPath) {
-      return { accepted: false, completed: false };
-    }
-    const scriptPath = environment.path.join(repositoryPath, "scripts", "fork-self-update.ts");
-    const targetApp = environment.path.join("/Applications", "T3 Code.app");
-    const started = yield* Effect.promise(() =>
-      runForkUpdateCommand({
-        bunPath,
-        scriptPath,
-        args: [
-          "install",
-          "--built-app",
-          builtApp.value,
-          "--target-app",
-          targetApp,
-          "--pid",
-          String(process.pid),
-        ],
-        cwd: repositoryPath,
-        detached: true,
-      })
-        .then(() => true)
-        .catch(() => false),
-    );
-    if (!started) {
-      return { accepted: false, completed: false };
-    }
-    yield* electronApp.quit;
-    return { accepted: true, completed: true };
-  });
 
   const readAppUpdateYml = fileSystem.readFileString(environment.appUpdateYmlPath, "utf-8").pipe(
     Effect.option,
@@ -1015,35 +713,6 @@ export const make = Effect.gen(function* () {
         void Effect.runPromiseWith(context)(effect);
       };
 
-      const forkSourceRepository = yield* readForkSourceRepository;
-      if (
-        Option.isSome(forkSourceRepository) &&
-        environment.isPackaged &&
-        environment.platform === "darwin"
-      ) {
-        yield* Ref.set(forkSourceRepositoryRef, forkSourceRepository);
-        yield* Ref.set(updaterConfiguredRef, true);
-        yield* setState({
-          ...createBaseUpdateState("latest", true, environment),
-          updateKind: "source",
-          sourceRepositoryPath: forkSourceRepository.value,
-          sourceCurrentCommit: null,
-          sourceUpstreamCommit: null,
-          sourceBehindCount: 0,
-          sourceAheadCount: 0,
-          sourceConflictFiles: [],
-        });
-        yield* checkForkSourceUpdates(forkSourceRepository.value);
-        yield* Effect.forkScoped(
-          Effect.sleep(AUTO_UPDATE_POLL_INTERVAL).pipe(
-            Effect.andThen(checkForkSourceUpdates(forkSourceRepository.value)),
-            Effect.asVoid,
-            Effect.forever,
-          ),
-        );
-        return;
-      }
-
       const appUpdateYmlConfig = yield* readAppUpdateYml;
       yield* Ref.set(appUpdateYmlConfigRef, appUpdateYmlConfig);
 
@@ -1104,9 +773,6 @@ export const make = Effect.gen(function* () {
       nextChannel: DesktopUpdateChannel,
     ) {
       yield* Effect.annotateCurrentSpan({ channel: nextChannel });
-      if (Option.isSome(yield* Ref.get(forkSourceRepositoryRef))) {
-        return yield* Ref.get(updateStateRef);
-      }
       const activeAction = yield* activeUpdateAction;
       if (Option.isSome(activeAction)) {
         return yield* new DesktopUpdateActionInProgressError({
@@ -1145,14 +811,6 @@ export const make = Effect.gen(function* () {
     }),
     check: Effect.fn("desktop.updates.check")(function* (reason: string) {
       yield* Effect.annotateCurrentSpan({ reason });
-      const forkSourceRepository = yield* Ref.get(forkSourceRepositoryRef);
-      if (Option.isSome(forkSourceRepository)) {
-        const checked = yield* checkForkSourceUpdates(forkSourceRepository.value);
-        return {
-          checked,
-          state: yield* Ref.get(updateStateRef),
-        };
-      }
       if (!(yield* Ref.get(updaterConfiguredRef))) {
         return {
           checked: false,
@@ -1166,10 +824,7 @@ export const make = Effect.gen(function* () {
       };
     }),
     download: Effect.gen(function* () {
-      const forkSourceRepository = yield* Ref.get(forkSourceRepositoryRef);
-      const result = Option.isSome(forkSourceRepository)
-        ? yield* buildForkSourceUpdate(forkSourceRepository.value)
-        : yield* downloadAvailableUpdate;
+      const result = yield* downloadAvailableUpdate;
       return {
         accepted: result.accepted,
         completed: result.completed,
@@ -1184,10 +839,7 @@ export const make = Effect.gen(function* () {
           state: yield* Ref.get(updateStateRef),
         };
       }
-      const forkSourceRepository = yield* Ref.get(forkSourceRepositoryRef);
-      const result = Option.isSome(forkSourceRepository)
-        ? yield* installForkSourceUpdate(forkSourceRepository.value)
-        : yield* installDownloadedUpdate;
+      const result = yield* installDownloadedUpdate;
       return {
         accepted: result.accepted,
         completed: result.completed,
