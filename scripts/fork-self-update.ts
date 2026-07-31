@@ -179,8 +179,12 @@ async function verifyForkBundle(appPath: string, repoPath: string) {
     throw new ForkUpdateError("wrong-app-name", `The build must be named ${EXPECTED_APP_NAME}.`);
   }
   const packageArchive = await readFile(join(appPath, "Contents", "Resources", "app.asar"));
-  const embeddedIdentity = `"t3codeForkSourceRepository":"${repoPath}"`;
-  if (!packageArchive.includes(Buffer.from(embeddedIdentity))) {
+  const sourceRepositoryKey = Buffer.from('"t3codeForkSourceRepository"');
+  const sourceRepositoryPath = Buffer.from(repoPath);
+  if (
+    !packageArchive.includes(sourceRepositoryKey) ||
+    !packageArchive.includes(sourceRepositoryPath)
+  ) {
     throw new ForkUpdateError(
       "missing-fork-identity",
       "The built app does not contain this fork checkout's embedded identity.",
