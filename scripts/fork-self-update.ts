@@ -232,6 +232,7 @@ async function build(repoPath: string, commit: string): Promise<string> {
   delete buildEnv.T3CODE_DESKTOP_UPDATE_REPOSITORY;
   buildEnv.T3CODE_FORK_SOURCE_REPOSITORY = repoPath;
   buildEnv.T3CODE_FORK_DISPLAY_NAME = "T3 Code";
+  buildEnv.T3CODE_FORK_APP_ID = "com.t3tools.t3code.copy";
 
   const result = await run(
     process.execPath,

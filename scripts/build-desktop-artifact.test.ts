@@ -354,6 +354,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         undefined,
         undefined,
         "T3 Code",
+        "com.t3tools.t3code.copy",
       );
 
       assert.notProperty(mac, "asarUnpack");
@@ -365,6 +366,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         { name: "T3 Code", schemes: ["t3code", "t3code-dev"] },
       ]);
       assert.equal(fork.productName, "T3 Code");
+      assert.equal(fork.appId, "com.t3tools.t3code.copy");
       for (const config of [mac, linux, win]) {
         assert.deepStrictEqual(config.electronLanguages, DESKTOP_ELECTRON_LANGUAGES);
         assert.deepStrictEqual(config.files, DESKTOP_FILE_EXCLUSIONS);

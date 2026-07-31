@@ -608,6 +608,7 @@ interface ResolvedBuildOptions {
   readonly wslPrebuild: string | undefined;
   readonly forkSourceRepository: string | undefined;
   readonly forkDisplayName: string | undefined;
+  readonly forkAppId: string | undefined;
 }
 
 interface StagePackageJson {
@@ -1046,6 +1047,7 @@ const BuildEnvConfig = Config.all({
   wslPrebuild: Config.string("T3CODE_DESKTOP_WSL_PREBUILD").pipe(Config.option),
   forkSourceRepository: Config.string("T3CODE_FORK_SOURCE_REPOSITORY").pipe(Config.option),
   forkDisplayName: Config.string("T3CODE_FORK_DISPLAY_NAME").pipe(Config.option),
+  forkAppId: Config.string("T3CODE_FORK_APP_ID").pipe(Config.option),
 });
 
 const MockUpdateServerPortSchema = Schema.NumberFromString.check(
@@ -1141,6 +1143,7 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
     Option.getOrUndefined(input.wslPrebuild) ?? Option.getOrUndefined(env.wslPrebuild);
   const forkSourceRepository = Option.getOrUndefined(env.forkSourceRepository)?.trim() || undefined;
   const forkDisplayName = Option.getOrUndefined(env.forkDisplayName)?.trim() || undefined;
+  const forkAppId = Option.getOrUndefined(env.forkAppId)?.trim() || undefined;
 
   return {
     platform,
@@ -1157,6 +1160,7 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
     wslPrebuild,
     forkSourceRepository,
     forkDisplayName,
+    forkAppId,
   } satisfies ResolvedBuildOptions;
 });
 
@@ -1545,9 +1549,10 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       }
     | undefined,
   productName = resolveDesktopProductName(version),
+  appId = DESKTOP_APP_ID,
 ) {
   const buildConfig: Record<string, unknown> = {
-    appId: DESKTOP_APP_ID,
+    appId,
     productName,
     artifactName: "T3-Code-${version}-${arch}.${ext}",
     electronLanguages: [...DESKTOP_ELECTRON_LANGUAGES],
@@ -1950,6 +1955,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
           }
         : undefined,
       options.forkDisplayName ?? resolveDesktopProductName(appVersion),
+      options.forkAppId ?? DESKTOP_APP_ID,
     ),
     dependencies: stageDependencies,
     devDependencies: {
