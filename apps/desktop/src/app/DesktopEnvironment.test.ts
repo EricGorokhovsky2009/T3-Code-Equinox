@@ -111,6 +111,23 @@ describe("DesktopEnvironment", () => {
     }),
   );
 
+  it.effect("isolates the packaged standalone copy from the official app", () =>
+    Effect.gen(function* () {
+      const environment = yield* makeEnvironment({
+        appName: "T3 Code",
+        isPackaged: true,
+      });
+
+      assert.equal(environment.baseDir, "/Users/alice/.t3-copy");
+      assert.equal(environment.stateDir, "/Users/alice/.t3-copy/userdata");
+      assert.equal(environment.userDataDirName, "t3code-copy");
+      assert.equal(environment.legacyUserDataDirName, "t3code-copy");
+      assert.equal(environment.appUserModelId, "com.t3tools.t3code.copy");
+      assert.equal(environment.linuxDesktopEntryName, "t3code-copy.desktop");
+      assert.equal(environment.linuxWmClass, "t3code-copy");
+    }),
+  );
+
   it.effect("uses a configured app user model id override", () =>
     Effect.gen(function* () {
       const environment = yield* makeEnvironment(
