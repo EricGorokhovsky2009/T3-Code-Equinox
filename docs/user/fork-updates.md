@@ -5,7 +5,7 @@ This macOS build updates from source instead of downloading official T3 Code rel
 The app checks `pingdotgg/t3code` for new commits automatically. When the sidebar shows **Fork
 update available**, select **Update Fork**. T3 Code then:
 
-1. verifies that the local checkout is `EricGorokhovsky2009/T3Code` with
+1. verifies that the local checkout is `EricGorokhovsky2009/t3code` with
    `pingdotgg/t3code` configured as `upstream`;
 2. merges `upstream/main` into the fork's local `main`;
 3. builds and locally signs a new Apple Silicon `T3 Code.app`;

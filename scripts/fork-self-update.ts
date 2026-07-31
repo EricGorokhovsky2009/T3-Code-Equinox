@@ -2,11 +2,11 @@
 // @effect-diagnostics nodeBuiltinImport:off globalConsole:off globalTimers:off - Host-side fork updater performs guarded Git, build, and macOS bundle replacement operations.
 
 import { existsSync } from "node:fs";
-import { mkdir, readFile, readdir, realpath, rename, rm } from "node:fs/promises";
+import { mkdir, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 
-const EXPECTED_ORIGIN = "github.com/EricGorokhovsky2009/T3Code";
+const EXPECTED_ORIGIN = "github.com/EricGorokhovsky2009/t3code";
 const EXPECTED_UPSTREAM = "github.com/pingdotgg/t3code";
 const EXPECTED_BRANCH = "main";
 const EXPECTED_APP_NAME = "T3 Code.app";
@@ -144,13 +144,21 @@ async function inspect(repoPath: string, fetch: boolean) {
     git(repoPath, ["rev-list", "--count", `upstream/${EXPECTED_BRANCH}..HEAD`]),
     git(repoPath, ["status", "--porcelain=v1", "--untracked-files=normal"]),
   ]);
+  const installedCommit = await readFile(
+    join(repoPath, ".t3", "fork-updater", "installed-commit"),
+    "utf8",
+  )
+    .then((value) => value.trim())
+    .catch(() => "");
+  const sourceBuildPending = installedCommit !== current.stdout;
   return {
-    status: Number(behind.stdout) > 0 ? "available" : "up-to-date",
+    status: Number(behind.stdout) > 0 || sourceBuildPending ? "available" : "up-to-date",
     repositoryPath: repoPath,
     currentCommit: current.stdout,
     upstreamCommit: upstream.stdout,
     behindCount: Number(behind.stdout),
     aheadCount: Number(ahead.stdout),
+    sourceBuildPending,
     dirty: status.stdout.length > 0,
     dirtyEntries: status.stdout.length === 0 ? [] : status.stdout.split("\n"),
   } as const;
@@ -266,19 +274,21 @@ async function update(repoPath: string) {
       { entries: before.dirtyEntries },
     );
   }
-  if (before.behindCount === 0) {
+  if (before.behindCount === 0 && !before.sourceBuildPending) {
     return { ...before, status: "up-to-date" };
   }
 
-  const merge = await git(repoPath, ["merge", "--no-edit", `upstream/${EXPECTED_BRANCH}`], true);
-  if (merge.exitCode !== 0) {
-    const conflicts = await git(repoPath, ["diff", "--name-only", "--diff-filter=U"], true);
-    return {
-      ...(await inspect(repoPath, false)),
-      status: "conflict",
-      conflictFiles: conflicts.stdout ? conflicts.stdout.split("\n") : [],
-      message: merge.stderr || merge.stdout || "Upstream merge has conflicts.",
-    };
+  if (before.behindCount > 0) {
+    const merge = await git(repoPath, ["merge", "--no-edit", `upstream/${EXPECTED_BRANCH}`], true);
+    if (merge.exitCode !== 0) {
+      const conflicts = await git(repoPath, ["diff", "--name-only", "--diff-filter=U"], true);
+      return {
+        ...(await inspect(repoPath, false)),
+        status: "conflict",
+        conflictFiles: conflicts.stdout ? conflicts.stdout.split("\n") : [],
+        message: merge.stderr || merge.stdout || "Upstream merge has conflicts.",
+      };
+    }
   }
 
   const merged = await inspect(repoPath, false);
@@ -338,6 +348,7 @@ async function install(
   const marker = `${join(".t3", "fork-updater")}/`;
   const repoPath = resolve(builtApp.slice(0, builtApp.indexOf(marker)));
   await resolveRepository(repoPath);
+  const installedCommit = await git(repoPath, ["rev-parse", "HEAD"]);
   await verifyForkBundle(builtApp, repoPath);
 
   await waitForExit(runningPid);
@@ -362,6 +373,9 @@ async function install(
     if (opened.exitCode !== 0) {
       throw new ForkUpdateError("relaunch-failed", opened.stderr || "Could not relaunch T3 Code.");
     }
+    const installedCommitPath = join(repoPath, ".t3", "fork-updater", "installed-commit");
+    await mkdir(dirname(installedCommitPath), { recursive: true });
+    await writeFile(installedCommitPath, `${installedCommit.stdout}\n`);
     await rm(backupApp, { recursive: true, force: true });
   } catch (error) {
     if (existsSync(backupApp) && !existsSync(targetApp)) {

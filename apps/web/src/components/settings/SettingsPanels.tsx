@@ -537,7 +537,7 @@ function AboutVersionSection() {
     (isSourceUpdate ? "Check Upstream" : "Check for Updates");
   const description = isSourceUpdate
     ? (updateState?.message ??
-      "Built from EricGorokhovsky2009/T3Code and synchronized with official T3 Code.")
+      "Built from EricGorokhovsky2009/t3code and synchronized with official T3 Code.")
     : action === "download" || action === "install"
       ? "Update available."
       : "Current version of the application.";
@@ -572,7 +572,7 @@ function AboutVersionSection() {
             description="Official changes merge into your custom main branch before T3 Code is rebuilt. Official release binaries are never downloaded."
             control={
               <div className="max-w-64 text-right font-mono text-[11px] text-muted-foreground">
-                <div>EricGorokhovsky2009/T3Code</div>
+                <div>EricGorokhovsky2009/t3code</div>
                 <div>
                   {updateState?.sourceCurrentCommit?.slice(0, 12) ?? "unknown"} →{" "}
                   {updateState?.sourceUpstreamCommit?.slice(0, 12) ?? "unknown"}
