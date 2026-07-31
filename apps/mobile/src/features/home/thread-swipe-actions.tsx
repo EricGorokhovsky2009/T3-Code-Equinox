@@ -229,10 +229,9 @@ export function ThreadSwipeable(props: {
   readonly enabled?: boolean;
   readonly enableTrackpadSwipe?: boolean;
   /**
-   * What a full swipe commits: "delete" (default, v1 behavior — the Delete
-   * button stretches) or "primary" — the advertised primary action fires and
-   * its button stretches instead. A full swipe must always match the action
-   * the stretching button advertises.
+   * What a full swipe commits. Omitted keeps the v1 Delete behavior only when
+   * the built-in Delete secondary action is in use; custom or absent
+   * secondary actions default to the advertised primary action.
    */
   readonly fullSwipeAction?: "delete" | "primary";
   readonly fullSwipeWidth: number;
@@ -262,7 +261,8 @@ export function ThreadSwipeable(props: {
   const hasSecondaryAction = props.secondaryAction !== null;
   const actionsWidth = swipeActionsWidth(hasSecondaryAction);
   const fullSwipeThreshold = Math.max(actionsWidth + 44, props.fullSwipeWidth * 0.58);
-  const fullSwipeAction = hasSecondaryAction ? (props.fullSwipeAction ?? "delete") : "primary";
+  const fullSwipeAction =
+    props.fullSwipeAction ?? (props.secondaryAction === undefined ? "delete" : "primary");
   const close = useCallback(() => swipeableRef.current?.close(), []);
   const gateEnabled = use(SwipeableScrollGateContext);
   const resetKey = props.resetKey;

@@ -206,6 +206,7 @@ export function useThreadListActions(): {
   const executeAction = useThreadActionExecutor();
   const snoozeMutation = useAtomCommand(threadEnvironment.snooze, { reportFailure: false });
   const unsnoozeMutation = useAtomCommand(threadEnvironment.unsnooze, { reportFailure: false });
+  const snoozeInFlightThreadKeys = useRef(new Set<string>());
 
   const archiveThread = useCallback(
     (thread: EnvironmentThreadShell) => {
@@ -219,71 +220,89 @@ export function useThreadListActions(): {
   );
   const snoozeThread = useCallback(
     async (thread: EnvironmentThreadShell, snoozedUntil: string) => {
-      if (!environmentSupportsSnooze(thread.environmentId)) {
-        Alert.alert(
-          "Could not snooze thread",
-          "This environment's server does not support snoozing yet. Update the server to use Snooze.",
-        );
+      const key = scopedThreadKey(thread.environmentId, thread.id);
+      if (snoozeInFlightThreadKeys.current.has(key)) {
         return false;
       }
-      if (!canSnooze(thread, { now: new Date().toISOString() })) {
-        Alert.alert(
-          "Could not snooze thread",
-          thread.hasPendingApprovals || thread.hasPendingUserInput
-            ? "This thread is waiting on you. Respond to the pending request before snoozing it."
-            : "This thread is still starting a turn. Try again once it's running.",
-        );
-        return false;
-      }
+      snoozeInFlightThreadKeys.current.add(key);
+      try {
+        if (!environmentSupportsSnooze(thread.environmentId)) {
+          Alert.alert(
+            "Could not snooze thread",
+            "This environment's server does not support snoozing yet. Update the server to use Snooze.",
+          );
+          return false;
+        }
+        if (!canSnooze(thread, { now: new Date().toISOString() })) {
+          Alert.alert(
+            "Could not snooze thread",
+            thread.hasPendingApprovals || thread.hasPendingUserInput
+              ? "This thread is waiting on you. Respond to the pending request before snoozing it."
+              : "This thread is still starting a turn. Try again once it's running.",
+          );
+          return false;
+        }
 
-      selectionHaptic();
-      const result = await snoozeMutation({
-        environmentId: thread.environmentId,
-        input: {
-          threadId: thread.id,
-          snoozedUntil,
-        },
-      });
-      if (result._tag === "Failure") {
-        const error = Cause.squash(result.cause);
-        Alert.alert(
-          "Could not snooze thread",
-          error instanceof Error && error.message.trim().length > 0
-            ? error.message
-            : "The thread could not be snoozed.",
-        );
-        return false;
+        selectionHaptic();
+        const result = await snoozeMutation({
+          environmentId: thread.environmentId,
+          input: {
+            threadId: thread.id,
+            snoozedUntil,
+          },
+        });
+        if (result._tag === "Failure") {
+          const error = Cause.squash(result.cause);
+          Alert.alert(
+            "Could not snooze thread",
+            error instanceof Error && error.message.trim().length > 0
+              ? error.message
+              : "The thread could not be snoozed.",
+          );
+          return false;
+        }
+        return true;
+      } finally {
+        snoozeInFlightThreadKeys.current.delete(key);
       }
-      return true;
     },
     [snoozeMutation],
   );
   const unsnoozeThread = useCallback(
     async (thread: EnvironmentThreadShell) => {
-      if (!environmentSupportsSnooze(thread.environmentId)) {
-        Alert.alert(
-          "Could not wake thread",
-          "This environment's server does not support snoozing yet. Update the server to wake this thread.",
-        );
+      const key = scopedThreadKey(thread.environmentId, thread.id);
+      if (snoozeInFlightThreadKeys.current.has(key)) {
         return false;
       }
+      snoozeInFlightThreadKeys.current.add(key);
+      try {
+        if (!environmentSupportsSnooze(thread.environmentId)) {
+          Alert.alert(
+            "Could not wake thread",
+            "This environment's server does not support snoozing yet. Update the server to wake this thread.",
+          );
+          return false;
+        }
 
-      selectionHaptic();
-      const result = await unsnoozeMutation({
-        environmentId: thread.environmentId,
-        input: { threadId: thread.id, reason: "user" },
-      });
-      if (result._tag === "Failure") {
-        const error = Cause.squash(result.cause);
-        Alert.alert(
-          "Could not wake thread",
-          error instanceof Error && error.message.trim().length > 0
-            ? error.message
-            : "The thread could not be woken.",
-        );
-        return false;
+        selectionHaptic();
+        const result = await unsnoozeMutation({
+          environmentId: thread.environmentId,
+          input: { threadId: thread.id, reason: "user" },
+        });
+        if (result._tag === "Failure") {
+          const error = Cause.squash(result.cause);
+          Alert.alert(
+            "Could not wake thread",
+            error instanceof Error && error.message.trim().length > 0
+              ? error.message
+              : "The thread could not be woken.",
+          );
+          return false;
+        }
+        return true;
+      } finally {
+        snoozeInFlightThreadKeys.current.delete(key);
       }
-      return true;
     },
     [unsnoozeMutation],
   );

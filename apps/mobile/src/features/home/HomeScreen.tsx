@@ -700,6 +700,7 @@ export function HomeScreen(props: HomeScreenProps) {
           variant={item.item.variant}
           showSettledDivider={item.item.showSettledDivider}
           snoozed={item.item.snoozed}
+          snoozePresetMinute={nowMinute}
           snoozeWakeLabelText={item.snoozeWakeLabelText}
           project={
             projectByKey.get(scopedProjectKey(thread.environmentId, thread.projectId)) ?? null
@@ -785,6 +786,7 @@ export function HomeScreen(props: HomeScreenProps) {
       serverConfigs,
       savedConnectionsById: props.savedConnectionsById,
       searchQuery: props.searchQuery,
+      snoozePresetMinute: nowMinute,
       threadSearchMatchByKey,
     }),
     [
@@ -793,6 +795,7 @@ export function HomeScreen(props: HomeScreenProps) {
       props.searchQuery,
       props.savedConnectionsById,
       serverConfigs,
+      nowMinute,
       threadSearchMatchByKey,
       v2ProjectTitleByProjectKey,
     ],

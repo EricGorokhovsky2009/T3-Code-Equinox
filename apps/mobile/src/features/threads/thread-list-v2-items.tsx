@@ -265,6 +265,9 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   /** Preformatted against the parent minute tick so this memoized row's
       countdown keeps moving. */
   readonly snoozeWakeLabelText?: string;
+  /** Parent minute tick passed as a prop so this memoized row refreshes its
+      native snooze menu while mounted. */
+  readonly snoozePresetMinute: string;
   readonly project: EnvironmentProject | null;
   readonly projectTitle?: string;
   readonly providerDriver: string | null;
@@ -375,10 +378,9 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     snoozable: canSnooze(thread, { now: new Date().toISOString() }),
     snoozed: snoozedRow,
   });
-  const snoozePresetMinute = new Date().toISOString().slice(0, 16);
   const snoozePresets = useMemo(
     () => (swipeActions.secondary === "snooze" ? resolveSnoozePresets(new Date()) : ([] as const)),
-    [snoozePresetMinute, swipeActions.secondary],
+    [props.snoozePresetMinute, swipeActions.secondary],
   );
   const snoozePresetActions = useMemo<MenuAction[]>(
     () =>
@@ -409,21 +411,12 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       if (nativeEvent.event === "unsnooze") handleUnsnooze();
       if (nativeEvent.event === "archive") handleArchive();
       if (nativeEvent.event === "delete") handleDelete();
-      const preset =
-        resolveSnoozePresets(new Date()).find(
-          (candidate) => nativeEvent.event === `snooze:${candidate.id}`,
-        ) ?? snoozePresets.find((candidate) => nativeEvent.event === `snooze:${candidate.id}`);
+      const preset = resolveSnoozePresets(new Date()).find(
+        (candidate) => nativeEvent.event === `snooze:${candidate.id}`,
+      );
       if (preset) handleSnooze(preset.snoozedUntil);
     },
-    [
-      handleArchive,
-      handleDelete,
-      handleSettle,
-      handleSnooze,
-      handleUnsettle,
-      handleUnsnooze,
-      snoozePresets,
-    ],
+    [handleArchive, handleDelete, handleSettle, handleSnooze, handleUnsettle, handleUnsnooze],
   );
   const primaryAction = useMemo(() => {
     // Pre-settlement server: archive is the swipe action, as in v1. (Slim

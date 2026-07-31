@@ -759,6 +759,7 @@ function ThreadNavigationSidebarPane(
       projectTitleByProjectKey,
       savedConnectionsById,
       serverConfigs,
+      snoozePresetMinute: nowMinute,
       threadSearchMatchByKey,
     }),
     [
@@ -768,6 +769,7 @@ function ThreadNavigationSidebarPane(
       projectTitleByProjectKey,
       savedConnectionsById,
       serverConfigs,
+      nowMinute,
       threadSearchMatchByKey,
     ],
   );
@@ -863,6 +865,7 @@ function ThreadNavigationSidebarPane(
               variant={item.item.variant}
               showSettledDivider={item.item.showSettledDivider}
               snoozed={item.item.snoozed}
+              snoozePresetMinute={nowMinute}
               snoozeWakeLabelText={item.snoozeWakeLabelText}
               project={projectByKey.get(scopeKey) ?? null}
               projectTitle={projectTitleByProjectKey.get(scopeKey)}
@@ -1035,6 +1038,7 @@ function ThreadNavigationSidebarPane(
       sidebarScrollGesture,
       snoozeEnvironmentIds,
       snoozeThread,
+      nowMinute,
       toggleSnoozedShelf,
       unsettleThread,
       unsnoozeThread,
