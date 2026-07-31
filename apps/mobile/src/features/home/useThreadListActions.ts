@@ -13,8 +13,6 @@ import { environmentServerConfigsAtom } from "../../state/server";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
 
-const SWIPE_SNOOZE_DURATION_MS = 60 * 60 * 1_000;
-
 /** Version skew: never send settle/unsettle to a server that predates them
     (capability defaults false on decode for older servers). */
 function environmentSupportsSettlement(environmentId: EnvironmentThreadShell["environmentId"]) {
@@ -201,7 +199,7 @@ export function useThreadListActions(): {
   readonly archiveThread: (thread: EnvironmentThreadShell) => void;
   readonly confirmDeleteThread: (thread: EnvironmentThreadShell) => void;
   readonly settleThread: (thread: EnvironmentThreadShell) => Promise<boolean>;
-  readonly snoozeThread: (thread: EnvironmentThreadShell) => Promise<boolean>;
+  readonly snoozeThread: (thread: EnvironmentThreadShell, snoozedUntil: string) => Promise<boolean>;
   readonly unsnoozeThread: (thread: EnvironmentThreadShell) => Promise<boolean>;
   readonly unsettleThread: (thread: EnvironmentThreadShell) => Promise<boolean>;
 } {
@@ -220,7 +218,7 @@ export function useThreadListActions(): {
     [executeAction],
   );
   const snoozeThread = useCallback(
-    async (thread: EnvironmentThreadShell) => {
+    async (thread: EnvironmentThreadShell, snoozedUntil: string) => {
       if (!environmentSupportsSnooze(thread.environmentId)) {
         Alert.alert(
           "Could not snooze thread",
@@ -243,7 +241,7 @@ export function useThreadListActions(): {
         environmentId: thread.environmentId,
         input: {
           threadId: thread.id,
-          snoozedUntil: new Date(Date.now() + SWIPE_SNOOZE_DURATION_MS).toISOString(),
+          snoozedUntil,
         },
       });
       if (result._tag === "Failure") {

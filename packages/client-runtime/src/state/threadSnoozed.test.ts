@@ -1,3 +1,4 @@
+// @effect-diagnostics globalDate:off -- Tests exercise local calendar snooze boundaries.
 import { ThreadId } from "@t3tools/contracts";
 import { TurnId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
@@ -5,6 +6,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   canSnooze,
   effectiveSnoozed,
+  resolveSnoozePresets,
   snoozeWakeLabel,
   threadRaisedHandWhileSnoozed,
   threadWokeAt,
@@ -15,6 +17,10 @@ const NOW = "2026-04-10T12:00:00.000Z";
 const SNOOZED_AT = "2026-04-10T09:00:00.000Z";
 const FUTURE_WAKE = "2026-04-11T09:00:00.000Z";
 const PAST_WAKE = "2026-04-10T10:00:00.000Z";
+
+function localDate(year: number, month: number, day: number, hour: number, minute = 0): Date {
+  return new Date(year, month - 1, day, hour, minute, 0, 0);
+}
 
 function makeShell(input: {
   readonly snoozedUntil?: string | null;
@@ -251,5 +257,38 @@ describe("snoozeWakeLabel", () => {
     expect(snoozeWakeLabel("2026-06-01T23:59:59.000Z", { now })).toBe("now");
     expect(snoozeWakeLabel("not-a-date", { now })).toBe("now");
     expect(snoozeWakeLabel("2026-06-02T09:00:00.000Z", { now: "bad" })).toBe("now");
+  });
+});
+
+describe("resolveSnoozePresets", () => {
+  it("offers the shared desktop and mobile choices", () => {
+    const presets = resolveSnoozePresets(localDate(2026, 4, 8, 10));
+    expect(presets.map((preset) => preset.id)).toEqual([
+      "hour",
+      "evening",
+      "tomorrow",
+      "next-week",
+    ]);
+    expect(presets.find((preset) => preset.id === "evening")?.label).toBe("This evening");
+    expect(
+      new Date(presets.find((preset) => preset.id === "tomorrow")!.snoozedUntil).getHours(),
+    ).toBe(9);
+  });
+
+  it("drops the evening choice once evening is near or past", () => {
+    expect(resolveSnoozePresets(localDate(2026, 4, 8, 17, 30)).map((preset) => preset.id)).toEqual([
+      "hour",
+      "tomorrow",
+      "next-week",
+    ]);
+  });
+
+  it("puts next week on the following Monday", () => {
+    const nextWeek = new Date(
+      resolveSnoozePresets(localDate(2026, 4, 6, 10)).find((preset) => preset.id === "next-week")!
+        .snoozedUntil,
+    );
+    expect(nextWeek.getDay()).toBe(1);
+    expect(nextWeek.getDate()).toBe(13);
   });
 });

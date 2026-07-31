@@ -3,7 +3,7 @@ import type {
   EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentThreadSearchMatch } from "@t3tools/client-runtime/state/thread-search";
-import { canSnooze } from "@t3tools/client-runtime/state/thread-settled";
+import { canSnooze, resolveSnoozePresets } from "@t3tools/client-runtime/state/thread-settled";
 import type { MenuAction } from "@react-native-menu/menu";
 import { memo, useCallback, useEffect, useMemo, useState, type ComponentProps } from "react";
 import { Platform, Pressable, useColorScheme, useWindowDimensions, View } from "react-native";
@@ -61,12 +61,6 @@ function threadTimeLabel(thread: EnvironmentThreadShell): string {
 // its own surface (thread screen / settings) rather than crowding the row.
 const CARD_MENU_ACTIONS: MenuAction[] = [
   { id: "settle", title: "Settle", image: "checkmark" },
-  { id: "delete", title: "Delete", image: "trash", attributes: { destructive: true } },
-];
-
-const SNOOZABLE_CARD_MENU_ACTIONS: MenuAction[] = [
-  { id: "settle", title: "Settle", image: "checkmark" },
-  { id: "snooze", title: "Snooze 1h", image: "clock" },
   { id: "delete", title: "Delete", image: "trash", attributes: { destructive: true } },
 ];
 
@@ -293,7 +287,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   readonly onSelectThread: (thread: EnvironmentThreadShell) => void;
   readonly onDeleteThread: (thread: EnvironmentThreadShell) => void;
   readonly onSettleThread: (thread: EnvironmentThreadShell) => void;
-  readonly onSnoozeThread: (thread: EnvironmentThreadShell) => void;
+  readonly onSnoozeThread: (thread: EnvironmentThreadShell, snoozedUntil: string) => void;
   readonly onUnsnoozeThread: (thread: EnvironmentThreadShell) => void;
   readonly onUnsettleThread: (thread: EnvironmentThreadShell) => void;
   readonly onArchiveThread: (thread: EnvironmentThreadShell) => void;
@@ -352,21 +346,13 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
 
   const handleDelete = useCallback(() => onDeleteThread(thread), [onDeleteThread, thread]);
   const handleSettle = useCallback(() => onSettleThread(thread), [onSettleThread, thread]);
-  const handleSnooze = useCallback(() => onSnoozeThread(thread), [onSnoozeThread, thread]);
+  const handleSnooze = useCallback(
+    (snoozedUntil: string) => onSnoozeThread(thread, snoozedUntil),
+    [onSnoozeThread, thread],
+  );
   const handleUnsnooze = useCallback(() => onUnsnoozeThread(thread), [onUnsnoozeThread, thread]);
   const handleUnsettle = useCallback(() => onUnsettleThread(thread), [onUnsettleThread, thread]);
   const handleArchive = useCallback(() => onArchiveThread(thread), [onArchiveThread, thread]);
-  const handleMenuAction = useCallback(
-    ({ nativeEvent }: { readonly nativeEvent: { readonly event: string } }) => {
-      if (nativeEvent.event === "settle") handleSettle();
-      if (nativeEvent.event === "unsettle") handleUnsettle();
-      if (nativeEvent.event === "snooze") handleSnooze();
-      if (nativeEvent.event === "unsnooze") handleUnsnooze();
-      if (nativeEvent.event === "archive") handleArchive();
-      if (nativeEvent.event === "delete") handleDelete();
-    },
-    [handleArchive, handleDelete, handleSettle, handleSnooze, handleUnsettle, handleUnsnooze],
-  );
 
   // Swipe: the v2 primary action is the lifecycle transition. Every settled
   // row can un-settle — explicit settles clear the override, auto-settled
@@ -389,6 +375,56 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     snoozable: canSnooze(thread, { now: new Date().toISOString() }),
     snoozed: snoozedRow,
   });
+  const snoozePresetMinute = new Date().toISOString().slice(0, 16);
+  const snoozePresets = useMemo(
+    () => (swipeActions.secondary === "snooze" ? resolveSnoozePresets(new Date()) : ([] as const)),
+    [snoozePresetMinute, swipeActions.secondary],
+  );
+  const snoozePresetActions = useMemo<MenuAction[]>(
+    () =>
+      snoozePresets.map((preset) => ({
+        id: `snooze:${preset.id}`,
+        title: preset.label,
+        subtitle: preset.whenLabel,
+      })),
+    [snoozePresets],
+  );
+  const snoozableCardMenuActions = useMemo<MenuAction[]>(
+    () => [
+      { id: "settle", title: "Settle", image: "checkmark" },
+      {
+        id: "snooze",
+        title: "Snooze",
+        image: "clock",
+        subactions: snoozePresetActions,
+      },
+      { id: "delete", title: "Delete", image: "trash", attributes: { destructive: true } },
+    ],
+    [snoozePresetActions],
+  );
+  const handleMenuAction = useCallback(
+    ({ nativeEvent }: { readonly nativeEvent: { readonly event: string } }) => {
+      if (nativeEvent.event === "settle") handleSettle();
+      if (nativeEvent.event === "unsettle") handleUnsettle();
+      if (nativeEvent.event === "unsnooze") handleUnsnooze();
+      if (nativeEvent.event === "archive") handleArchive();
+      if (nativeEvent.event === "delete") handleDelete();
+      const preset =
+        resolveSnoozePresets(new Date()).find(
+          (candidate) => nativeEvent.event === `snooze:${candidate.id}`,
+        ) ?? snoozePresets.find((candidate) => nativeEvent.event === `snooze:${candidate.id}`);
+      if (preset) handleSnooze(preset.snoozedUntil);
+    },
+    [
+      handleArchive,
+      handleDelete,
+      handleSettle,
+      handleSnooze,
+      handleUnsettle,
+      handleUnsnooze,
+      snoozePresets,
+    ],
+  );
   const primaryAction = useMemo(() => {
     // Pre-settlement server: archive is the swipe action, as in v1. (Slim
     // rows cannot occur here — unsupported environments never classify as
@@ -434,13 +470,18 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     () =>
       swipeActions.secondary === "snooze"
         ? {
-            accessibilityLabel: `Snooze ${thread.title} for 1 hour`,
+            accessibilityLabel: `Choose when to snooze ${thread.title}`,
             icon: "clock" as const,
-            label: "Snooze 1h",
-            onPress: handleSnooze,
+            label: "Snooze",
+            menu: {
+              actions: snoozePresetActions,
+              onPressAction: handleMenuAction,
+              title: "Snooze until",
+            },
+            onPress: () => undefined,
           }
         : null,
-    [handleSnooze, swipeActions.secondary, thread.title],
+    [handleMenuAction, snoozePresetActions, swipeActions.secondary, thread.title],
   );
   const swipeAccessibilityHint =
     secondaryAction === null
@@ -716,7 +757,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
                   : canUnsettle
                     ? SLIM_MENU_ACTIONS
                     : swipeActions.secondary === "snooze"
-                      ? SNOOZABLE_CARD_MENU_ACTIONS
+                      ? snoozableCardMenuActions
                       : CARD_MENU_ACTIONS
             }
             onPressAction={handleMenuAction}

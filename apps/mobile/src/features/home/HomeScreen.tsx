@@ -104,7 +104,10 @@ interface HomeScreenProps {
   readonly onDeleteThread: (thread: EnvironmentThreadShell) => void;
   /** Resolves true iff the settle was dispatched and succeeded. */
   readonly onSettleThread: (thread: EnvironmentThreadShell) => Promise<boolean>;
-  readonly onSnoozeThread: (thread: EnvironmentThreadShell) => Promise<boolean>;
+  readonly onSnoozeThread: (
+    thread: EnvironmentThreadShell,
+    snoozedUntil: string,
+  ) => Promise<boolean>;
   readonly onUnsnoozeThread: (thread: EnvironmentThreadShell) => Promise<boolean>;
   readonly onUnsettleThread: (thread: EnvironmentThreadShell) => void;
   readonly onSelectPendingTask: (pendingTask: PendingNewTask) => void;
@@ -501,8 +504,8 @@ export function HomeScreen(props: HomeScreenProps) {
     [props.onSettleThread],
   );
   const handleSnoozeThread = useCallback(
-    (thread: EnvironmentThreadShell) => {
-      void props.onSnoozeThread(thread);
+    (thread: EnvironmentThreadShell, snoozedUntil: string) => {
+      void props.onSnoozeThread(thread, snoozedUntil);
     },
     [props.onSnoozeThread],
   );

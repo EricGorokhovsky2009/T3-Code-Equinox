@@ -1,4 +1,6 @@
 import { SymbolView } from "../../components/AppSymbol";
+import { ControlPillMenu } from "../../components/ControlPill";
+import type { MenuAction } from "@react-native-menu/menu";
 import * as Haptics from "expo-haptics";
 import {
   createContext,
@@ -51,6 +53,11 @@ interface ThreadSwipeAction {
   readonly accessibilityLabel: string;
   readonly icon: ComponentProps<typeof SymbolView>["name"];
   readonly label: string;
+  readonly menu?: {
+    readonly actions: MenuAction[];
+    readonly onPressAction: NonNullable<ComponentProps<typeof ControlPillMenu>["onPressAction"]>;
+    readonly title?: string;
+  };
   readonly onPress: () => void;
 }
 
@@ -86,6 +93,16 @@ function resolveSecondaryAction(input: {
   return {
     ...action,
     backgroundColor: "#5856d6",
+    menu:
+      action.menu === undefined
+        ? undefined
+        : {
+            ...action.menu,
+            onPressAction: (event) => {
+              input.close();
+              action.menu?.onPressAction(event);
+            },
+          },
     onPress: () => {
       input.close();
       action.onPress();
@@ -348,6 +365,7 @@ function SwipeActionButton(props: {
   readonly fullSwipeThreshold: number;
   readonly icon: ComponentProps<typeof SymbolView>["name"];
   readonly label: string;
+  readonly menu?: ThreadSwipeAction["menu"];
   readonly onPress: () => void;
   readonly stretchesOnFullSwipe: boolean;
   readonly translation: SharedValue<number>;
@@ -418,6 +436,63 @@ function SwipeActionButton(props: {
     };
   });
 
+  const button = (
+    <Pressable
+      accessibilityLabel={props.accessibilityLabel}
+      accessibilityRole="button"
+      onPress={props.menu === undefined ? props.onPress : undefined}
+      style={({ pressed }) => ({
+        alignItems: "center",
+        height: "100%",
+        justifyContent: "center",
+        opacity: pressed ? 0.72 : 1,
+        width: "100%",
+      })}
+    >
+      <View style={{ height: circleSize, width: circleSize }}>
+        <Animated.View
+          style={[
+            {
+              backgroundColor: props.backgroundColor,
+              borderRadius: 999,
+              height: circleSize,
+              left: 0,
+              position: "absolute",
+              top: 0,
+            },
+            circleStyle,
+          ]}
+        />
+        <Animated.View
+          style={[
+            {
+              alignItems: "center",
+              height: circleSize,
+              justifyContent: "center",
+              left: 0,
+              position: "absolute",
+              top: 0,
+              width: circleSize,
+            },
+            iconStyle,
+          ]}
+        >
+          <SymbolView name={props.icon} size={iconSize} tintColor="#ffffff" type="monochrome" />
+        </Animated.View>
+      </View>
+      <Animated.View
+        style={[
+          { height: 14, justifyContent: "center", paddingTop: props.compact ? 0 : 2 },
+          labelStyle,
+        ]}
+      >
+        <Text className="text-3xs font-t3-medium text-foreground-muted" numberOfLines={1}>
+          {props.label}
+        </Text>
+      </Animated.View>
+    </Pressable>
+  );
+
   return (
     <Animated.View
       style={[
@@ -431,60 +506,18 @@ function SwipeActionButton(props: {
         actionStyle,
       ]}
     >
-      <Pressable
-        accessibilityLabel={props.accessibilityLabel}
-        accessibilityRole="button"
-        onPress={props.onPress}
-        style={({ pressed }) => ({
-          alignItems: "center",
-          height: "100%",
-          justifyContent: "center",
-          opacity: pressed ? 0.72 : 1,
-          width: "100%",
-        })}
-      >
-        <View style={{ height: circleSize, width: circleSize }}>
-          <Animated.View
-            style={[
-              {
-                backgroundColor: props.backgroundColor,
-                borderRadius: 999,
-                height: circleSize,
-                left: 0,
-                position: "absolute",
-                top: 0,
-              },
-              circleStyle,
-            ]}
-          />
-          <Animated.View
-            style={[
-              {
-                alignItems: "center",
-                height: circleSize,
-                justifyContent: "center",
-                left: 0,
-                position: "absolute",
-                top: 0,
-                width: circleSize,
-              },
-              iconStyle,
-            ]}
-          >
-            <SymbolView name={props.icon} size={iconSize} tintColor="#ffffff" type="monochrome" />
-          </Animated.View>
-        </View>
-        <Animated.View
-          style={[
-            { height: 14, justifyContent: "center", paddingTop: props.compact ? 0 : 2 },
-            labelStyle,
-          ]}
+      {props.menu === undefined ? (
+        button
+      ) : (
+        <ControlPillMenu
+          actions={props.menu.actions}
+          onPressAction={props.menu.onPressAction}
+          title={props.menu.title}
+          style={{ height: "100%", width: "100%" }}
         >
-          <Text className="text-3xs font-t3-medium text-foreground-muted" numberOfLines={1}>
-            {props.label}
-          </Text>
-        </Animated.View>
-      </Pressable>
+          {button}
+        </ControlPillMenu>
+      )}
     </Animated.View>
   );
 }
@@ -548,6 +581,7 @@ export function ThreadSwipeActions(props: {
           fullSwipeThreshold={props.fullSwipeThreshold}
           icon={secondaryAction.icon}
           label={secondaryAction.label}
+          menu={secondaryAction.menu}
           onPress={secondaryAction.onPress}
           stretchesOnFullSwipe={!fullSwipeIsPrimary}
           translation={props.translation}
