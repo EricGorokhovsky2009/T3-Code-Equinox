@@ -6,7 +6,14 @@ import type { EnvironmentThreadSearchMatch } from "@t3tools/client-runtime/state
 import { canSnooze, resolveSnoozePresets } from "@t3tools/client-runtime/state/thread-settled";
 import type { MenuAction } from "@react-native-menu/menu";
 import { memo, useCallback, useEffect, useMemo, useState, type ComponentProps } from "react";
-import { Platform, Pressable, useColorScheme, useWindowDimensions, View } from "react-native";
+import {
+  Alert,
+  Platform,
+  Pressable,
+  useColorScheme,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import type { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
 
 import { SymbolView } from "../../components/AppSymbol";
@@ -21,6 +28,7 @@ import type { PendingNewTask } from "../../state/use-pending-new-tasks";
 import { useThreadPr } from "../../state/use-thread-pr";
 import { ThreadSwipeable } from "../home/thread-swipe-actions";
 import {
+  resolveThreadListV2SnoozeMenuSelection,
   resolveThreadListV2SnoozeGateExpiryMs,
   resolveThreadListV2Status,
   resolveThreadListV2SwipeActions,
@@ -411,12 +419,26 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       if (nativeEvent.event === "unsnooze") handleUnsnooze();
       if (nativeEvent.event === "archive") handleArchive();
       if (nativeEvent.event === "delete") handleDelete();
-      const preset = resolveSnoozePresets(new Date()).find(
-        (candidate) => nativeEvent.event === `snooze:${candidate.id}`,
-      );
-      if (preset) handleSnooze(preset.snoozedUntil);
+      const snoozeSelection = resolveThreadListV2SnoozeMenuSelection({
+        event: nativeEvent.event,
+        displayedPresets: snoozePresets,
+        now: new Date(),
+      });
+      if (snoozeSelection._tag === "selected") {
+        handleSnooze(snoozeSelection.preset.snoozedUntil);
+      } else if (snoozeSelection._tag === "expired") {
+        Alert.alert("Could not snooze thread", "That snooze time has passed. Choose another time.");
+      }
     },
-    [handleArchive, handleDelete, handleSettle, handleSnooze, handleUnsettle, handleUnsnooze],
+    [
+      handleArchive,
+      handleDelete,
+      handleSettle,
+      handleSnooze,
+      handleUnsettle,
+      handleUnsnooze,
+      snoozePresets,
+    ],
   );
   const primaryAction = useMemo(() => {
     // Pre-settlement server: archive is the swipe action, as in v1. (Slim

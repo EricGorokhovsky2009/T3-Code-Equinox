@@ -1,5 +1,6 @@
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
+import { resolveSnoozePresets } from "@t3tools/client-runtime/state/thread-settled";
 import {
   CommandId,
   EnvironmentId,
@@ -16,6 +17,7 @@ import {
   buildThreadListV2Items,
   buildThreadListV2ListItems,
   resolveThreadListV2Enabled,
+  resolveThreadListV2SnoozeMenuSelection,
   resolveThreadListV2SnoozeGateExpiryMs,
   resolveThreadListV2Status,
   resolveThreadListV2SwipeActions,
@@ -51,6 +53,54 @@ function makeThread(
 }
 
 const NOW = "2026-06-02T00:00:00.000Z";
+
+describe("resolveThreadListV2SnoozeMenuSelection", () => {
+  it("accepts a displayed evening preset while its wake time is still future", () => {
+    const menuOpenedAt = new Date(2026, 4, 8, 16, 59, 30);
+    const selectedAt = new Date(2026, 4, 8, 17, 0, 30);
+    const displayedPresets = resolveSnoozePresets(menuOpenedAt);
+
+    const selection = resolveThreadListV2SnoozeMenuSelection({
+      event: "snooze:evening",
+      displayedPresets,
+      now: selectedAt,
+    });
+
+    expect(selection).toEqual({
+      _tag: "selected",
+      preset: displayedPresets.find((preset) => preset.id === "evening"),
+    });
+  });
+
+  it("expires a displayed preset once its wake time has passed", () => {
+    const displayedPresets = resolveSnoozePresets(new Date(2026, 4, 8, 16, 59, 30));
+
+    expect(
+      resolveThreadListV2SnoozeMenuSelection({
+        event: "snooze:evening",
+        displayedPresets,
+        now: new Date(2026, 4, 8, 18, 0, 1),
+      }),
+    ).toEqual({ _tag: "expired" });
+  });
+
+  it("recomputes presets that remain available instead of using old timestamps", () => {
+    const displayedPresets = resolveSnoozePresets(new Date(2026, 4, 8, 10));
+    const selectedAt = new Date(2026, 4, 8, 10, 30);
+    const selection = resolveThreadListV2SnoozeMenuSelection({
+      event: "snooze:hour",
+      displayedPresets,
+      now: selectedAt,
+    });
+
+    expect(selection._tag).toBe("selected");
+    if (selection._tag === "selected") {
+      expect(selection.preset.snoozedUntil).toBe(
+        new Date(selectedAt.getTime() + 60 * 60 * 1_000).toISOString(),
+      );
+    }
+  });
+});
 
 describe("resolveThreadListV2Enabled", () => {
   it("defaults on when the device has never chosen", () => {
