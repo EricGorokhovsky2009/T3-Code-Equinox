@@ -106,6 +106,34 @@ describe("desktop update button state", () => {
     expect(isDesktopUpdateButtonDisabled(state)).toBe(true);
     expect(getDesktopUpdateButtonTooltip(state)).toContain("42%");
   });
+
+  it("describes source updates as fork merges instead of binary downloads", () => {
+    const state: DesktopUpdateState = {
+      ...baseState,
+      updateKind: "source",
+      status: "available",
+      availableVersion: "abcdef123456",
+      sourceBehindCount: 3,
+    };
+    expect(resolveDesktopUpdateButtonAction(state)).toBe("download");
+    expect(getDesktopUpdateButtonTooltip(state)).toBe(
+      "3 official changes ready to merge into your fork",
+    );
+  });
+
+  it("routes source merge conflicts to the AI flow instead of retrying the updater", () => {
+    const state: DesktopUpdateState = {
+      ...baseState,
+      updateKind: "source",
+      status: "error",
+      availableVersion: "abcdef123456",
+      errorContext: "download",
+      canRetry: false,
+      sourceConflictFiles: ["apps/web/src/App.tsx"],
+    };
+    expect(resolveDesktopUpdateButtonAction(state)).toBe("none");
+    expect(shouldShowDesktopUpdateButton(state)).toBe(false);
+  });
 });
 
 describe("getDesktopUpdateActionError", () => {

@@ -189,6 +189,11 @@ export const DesktopRuntimeInfoSchema = Schema.Struct({
 export interface DesktopUpdateState {
   enabled: boolean;
   status: DesktopUpdateStatus;
+  /**
+   * Release builds download published artifacts. Fork builds can instead
+   * merge upstream source and rebuild the installed app locally.
+   */
+  updateKind?: "release" | "source";
   channel: DesktopUpdateChannel;
   currentVersion: string;
   hostArch: DesktopRuntimeArch;
@@ -202,6 +207,12 @@ export interface DesktopUpdateState {
   message: string | null;
   errorContext: "check" | "download" | "install" | null;
   canRetry: boolean;
+  sourceRepositoryPath?: string | null;
+  sourceCurrentCommit?: string | null;
+  sourceUpstreamCommit?: string | null;
+  sourceBehindCount?: number;
+  sourceAheadCount?: number;
+  sourceConflictFiles?: ReadonlyArray<string>;
 }
 
 export interface DesktopUpdateReleaseNote {
@@ -217,6 +228,7 @@ export const DesktopUpdateReleaseNoteSchema = Schema.Struct({
 export const DesktopUpdateStateSchema = Schema.Struct({
   enabled: Schema.Boolean,
   status: DesktopUpdateStatusSchema,
+  updateKind: Schema.optionalKey(Schema.Literals(["release", "source"])),
   channel: DesktopUpdateChannelSchema,
   currentVersion: Schema.String,
   hostArch: DesktopRuntimeArchSchema,
@@ -230,6 +242,12 @@ export const DesktopUpdateStateSchema = Schema.Struct({
   message: Schema.NullOr(Schema.String),
   errorContext: Schema.NullOr(Schema.Literals(["check", "download", "install"])),
   canRetry: Schema.Boolean,
+  sourceRepositoryPath: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  sourceCurrentCommit: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  sourceUpstreamCommit: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  sourceBehindCount: Schema.optionalKey(Schema.Number),
+  sourceAheadCount: Schema.optionalKey(Schema.Number),
+  sourceConflictFiles: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 
 export interface DesktopUpdateActionResult {

@@ -24,6 +24,9 @@ export function getDesktopUpdateReleaseUrl(version: string | null): string | nul
 export function resolveDesktopUpdateButtonAction(
   state: DesktopUpdateState,
 ): DesktopUpdateButtonAction {
+  if (state.updateKind === "source" && (state.sourceConflictFiles?.length ?? 0) > 0) {
+    return "none";
+  }
   if (state.downloadedVersion) {
     return "install";
   }
@@ -72,15 +75,27 @@ export function getArm64IntelBuildWarningDescription(state: DesktopUpdateState):
 }
 
 export function getDesktopUpdateButtonTooltip(state: DesktopUpdateState): string {
+  const sourceUpdate = state.updateKind === "source";
   if (state.status === "available") {
+    if (sourceUpdate) {
+      return `${state.sourceBehindCount ?? 0} official change${
+        state.sourceBehindCount === 1 ? "" : "s"
+      } ready to merge into your fork`;
+    }
     return `Update ${state.availableVersion ?? "available"} ready to download`;
   }
   if (state.status === "downloading") {
+    if (sourceUpdate) {
+      return "Merging official changes and rebuilding your fork";
+    }
     const progress =
       typeof state.downloadPercent === "number" ? ` (${Math.floor(state.downloadPercent)}%)` : "";
     return `Downloading update${progress}`;
   }
   if (state.status === "downloaded") {
+    if (sourceUpdate) {
+      return "Your fork is rebuilt and ready. Click to restart and install.";
+    }
     return `Update ${state.downloadedVersion ?? state.availableVersion ?? "ready"} downloaded. Click to restart and install.`;
   }
   if (state.status === "error") {
@@ -92,18 +107,22 @@ export function getDesktopUpdateButtonTooltip(state: DesktopUpdateState): string
     }
     return state.message ?? "Update failed";
   }
-  return "Up to date";
+  return sourceUpdate ? "Fork up to date" : "Up to date";
 }
 
 export function getDesktopUpdateInstallConfirmationMessage(
-  state: Pick<DesktopUpdateState, "availableVersion" | "downloadedVersion">,
+  state: Pick<DesktopUpdateState, "availableVersion" | "downloadedVersion" | "updateKind">,
   platform = "",
 ): string {
   const version = state.downloadedVersion ?? state.availableVersion;
   const windowsInstallWarning = isWindowsPlatform(platform)
     ? "\n\nOn Windows, T3 Code may remain closed for several minutes while the update installs, and no installer window may appear. T3 Code will reopen automatically when installation finishes."
     : "";
-  return `Install update${version ? ` ${version}` : ""} and restart T3 Code?\n\nAny running tasks will be interrupted. Make sure you're ready before continuing.${windowsInstallWarning}`;
+  const updateDescription =
+    state.updateKind === "source"
+      ? "Install the T3 Code build produced from your GitHub fork"
+      : `Install update${version ? ` ${version}` : ""}`;
+  return `${updateDescription} and restart T3 Code?\n\nAny running tasks will be interrupted. Make sure you're ready before continuing.${windowsInstallWarning}`;
 }
 
 export function getDesktopUpdateActionError(result: DesktopUpdateActionResult): string | null {
