@@ -106,6 +106,47 @@ describe("desktop update button state", () => {
     expect(isDesktopUpdateButtonDisabled(state)).toBe(true);
     expect(getDesktopUpdateButtonTooltip(state)).toContain("42%");
   });
+
+  it("describes upstream source updates as Sync With T3 Code", () => {
+    const state: DesktopUpdateState = {
+      ...baseState,
+      updateKind: "source",
+      status: "available",
+      availableVersion: "abcdef123456",
+      sourceBehindCount: 3,
+    };
+    expect(resolveDesktopUpdateButtonAction(state)).toBe("download");
+    expect(getDesktopUpdateButtonTooltip(state)).toBe(
+      "3 official changes ready to Sync With T3 Code",
+    );
+  });
+
+  it("describes local fork builds as Personal Updates", () => {
+    const state: DesktopUpdateState = {
+      ...baseState,
+      updateKind: "source",
+      status: "available",
+      availableVersion: "abcdef123456",
+      sourceBehindCount: 0,
+    };
+    expect(getDesktopUpdateButtonTooltip(state)).toBe(
+      "Your GitHub changes are ready to build as a Personal Update",
+    );
+  });
+
+  it("routes source merge conflicts to the AI flow instead of retrying the updater", () => {
+    const state: DesktopUpdateState = {
+      ...baseState,
+      updateKind: "source",
+      status: "error",
+      availableVersion: "abcdef123456",
+      errorContext: "download",
+      canRetry: false,
+      sourceConflictFiles: ["apps/web/src/App.tsx"],
+    };
+    expect(resolveDesktopUpdateButtonAction(state)).toBe("none");
+    expect(shouldShowDesktopUpdateButton(state)).toBe(false);
+  });
 });
 
 describe("getDesktopUpdateActionError", () => {

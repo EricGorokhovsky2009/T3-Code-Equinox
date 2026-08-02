@@ -269,6 +269,34 @@ describe("resolveInitialServerAuthGateState", () => {
     expect(attempts).toBe(4);
   });
 
+  it("retries a desktop session HTTP 500 while the replacement backend starts", async () => {
+    vi.useFakeTimers();
+    installDesktopBootstrap();
+    let attempts = 0;
+    const request = HttpClientRequest.get("http://localhost/api/auth/session");
+    const response = HttpClientResponse.fromWeb(
+      request,
+      new Response("Backend starting", { status: 500 }),
+    );
+    const runner: PrimaryHttpEffectRunner = async <A>() => {
+      attempts += 1;
+      if (attempts === 1) {
+        throw new HttpClientError.HttpClientError({
+          reason: new HttpClientError.StatusCodeError({ request, response }),
+        });
+      }
+      return authenticatedSession(DESKTOP_AUTH) as A;
+    };
+    __setPrimaryHttpRunnerForTests(runner);
+
+    const { resolveInitialServerAuthGateState } = await import("./environments/primary");
+    const gateStatePromise = resolveInitialServerAuthGateState();
+    await vi.advanceTimersByTimeAsync(500);
+
+    await expect(gateStatePromise).resolves.toEqual({ status: "authenticated" });
+    expect(attempts).toBe(2);
+  });
+
   it("takes a pairing token from the location hash and strips it immediately", async () => {
     const testWindow = installTestBrowser("http://localhost/#token=pairing-token");
     const { takePairingTokenFromUrl } = await import("./environments/primary");

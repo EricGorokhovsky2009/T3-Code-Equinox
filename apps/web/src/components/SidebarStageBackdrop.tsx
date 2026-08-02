@@ -5,8 +5,8 @@ import { APP_STAGE_LABEL } from "../branding";
 import { resolveServerBackedAppStageLabel } from "../branding.logic";
 import { primaryServerConfigAtom } from "../state/server";
 
-export type SidebarStageBackdropVariant = "nightly" | "dev";
-export type EnvironmentIdentificationPillLabel = "Dev" | "Nightly";
+export type SidebarStageBackdropVariant = "nightly" | "dev" | "equinox";
+export type EnvironmentIdentificationPillLabel = "Dev" | "Nightly" | "Equinox";
 
 // A wide viewBox keeps the 96-unit art height at a fixed scale while sidebar resizing reveals
 // more horizontal canvas instead of zooming the scene.
@@ -20,6 +20,7 @@ export function resolveSidebarStageBackdropVariant(
   const normalized = stageLabel.trim().toLowerCase();
   if (normalized === "nightly") return "nightly";
   if (normalized === "dev") return "dev";
+  if (normalized === "equinox") return "equinox";
   return null;
 }
 
@@ -29,6 +30,7 @@ export function resolveEnvironmentIdentificationPillLabel(
   const normalized = stageLabel.trim().toLowerCase();
   if (normalized === "dev") return "Dev";
   if (normalized === "nightly") return "Nightly";
+  if (normalized === "equinox") return "Equinox";
   return null;
 }
 
@@ -59,11 +61,98 @@ export function SidebarStageBackdrop({ variant }: { variant: SidebarStageBackdro
 }
 
 export function StageBackdropArt({ variant }: { variant: SidebarStageBackdropVariant }) {
-  return variant === "nightly" ? <NightlySkyArt /> : <DevBlueprintArt />;
+  if (variant === "nightly") return <NightlySkyArt />;
+  if (variant === "equinox") return <EquinoxHorizonArt />;
+  return <DevBlueprintArt />;
 }
 
 export function StageBackdropButtonArt({ variant }: { variant: SidebarStageBackdropVariant }) {
-  return variant === "nightly" ? <NightlySkyArt compact /> : <DevBlueprintArt compact />;
+  if (variant === "nightly") return <NightlySkyArt compact />;
+  if (variant === "equinox") return <EquinoxHorizonArt compact />;
+  return <DevBlueprintArt compact />;
+}
+
+function EquinoxHorizonArt({ compact = false }: { compact?: boolean }) {
+  const idPrefix = useId().replaceAll(":", "");
+  const skyId = `${idPrefix}-equinox-sky`;
+  const horizonId = `${idPrefix}-equinox-horizon`;
+  const glowId = `${idPrefix}-equinox-glow`;
+  const patternId = `${idPrefix}-equinox-pattern`;
+  const centerX = compact ? 144 : 118;
+
+  return (
+    <svg
+      className="h-full w-full"
+      fill="none"
+      preserveAspectRatio="xMinYMin slice"
+      viewBox={compact ? "72 0 8192 96" : STAGE_BACKDROP_VIEW_BOX}
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <defs>
+        <linearGradient id={skyId} x1="0" y1="0" x2="0" y2="96" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#070B24" />
+          <stop offset="0.62" stopColor="#24143F" />
+          <stop offset="1" stopColor="#7A234D" />
+        </linearGradient>
+        <linearGradient id={horizonId} x1="0" y1="64" x2="0" y2="96" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#FFD05A" />
+          <stop offset="0.18" stopColor="#FF7A42" />
+          <stop offset="1" stopColor="#D92E43" />
+        </linearGradient>
+        <radialGradient
+          id={glowId}
+          cx="0"
+          cy="0"
+          r="1"
+          gradientTransform="translate(144 66) scale(94 22)"
+          gradientUnits="userSpaceOnUse"
+        >
+          <stop stopColor="#FFF1A8" stopOpacity="0.95" />
+          <stop offset="0.28" stopColor="#FF9A54" stopOpacity="0.72" />
+          <stop offset="1" stopColor="#9A4CFF" stopOpacity="0" />
+        </radialGradient>
+        <pattern id={patternId} width="288" height="96" patternUnits="userSpaceOnUse">
+          <rect width="288" height="96" fill={`url(#${skyId})`} />
+          <ellipse
+            cx={centerX}
+            cy={compact ? 96 : 101}
+            rx={compact ? 116 : 72}
+            ry={compact ? 46 : 30}
+            fill={`url(#${horizonId})`}
+            fillOpacity={compact ? 1 : 0.72}
+          />
+          <ellipse
+            cx={centerX}
+            cy={compact ? 67 : 78}
+            rx={compact ? 105 : 68}
+            ry={compact ? 17 : 11}
+            fill={`url(#${glowId})`}
+          />
+          <path
+            d={
+              compact
+                ? "M47 66C68 24 101 10 144 10C187 10 220 24 241 66"
+                : "M56 72C69 45 90 30 118 30C146 30 167 45 180 72"
+            }
+            stroke="#A98AFF"
+            strokeOpacity={compact ? 0.9 : 0.58}
+            strokeWidth={compact ? 1.6 : 1.1}
+          />
+          <path
+            d={
+              compact
+                ? "M47 66C68 24 101 10 144 10C187 10 220 24 241 66"
+                : "M56 72C69 45 90 30 118 30C146 30 167 45 180 72"
+            }
+            stroke="#8B5CF6"
+            strokeOpacity={compact ? 0.35 : 0.18}
+            strokeWidth={compact ? 5 : 3}
+          />
+        </pattern>
+      </defs>
+      <rect width="100%" height="96" fill={`url(#${patternId})`} />
+    </svg>
+  );
 }
 
 const NIGHTLY_STARS: ReadonlyArray<{

@@ -154,6 +154,12 @@ export function SidebarUpdatePill() {
             disabled ? " cursor-not-allowed opacity-60" : ""
           }`}
         >
+          {state?.status === "downloading" && typeof state.downloadPercent === "number" && (
+            <div
+              className="pointer-events-none absolute inset-y-0 left-0 rounded-lg bg-primary/15 transition-[width] duration-300"
+              style={{ width: `${Math.max(0, Math.min(100, state.downloadPercent))}%` }}
+            />
+          )}
           <div className="pointer-events-none absolute inset-0 rounded-lg transition-colors group-has-[button.update-main:hover]/update:bg-primary/22" />
           <Tooltip>
             <TooltipTrigger
@@ -169,13 +175,19 @@ export function SidebarUpdatePill() {
                   {action === "install" ? (
                     <>
                       <RotateCwIcon className="size-3.5" />
-                      <span>Restart to update</span>
+                      <span>
+                        {state?.updateKind === "source" ? "Restart with fork" : "Restart to update"}
+                      </span>
                     </>
                   ) : state?.status === "downloading" ? (
                     <>
                       <DownloadIcon className="size-3.5" />
                       <span>
-                        Downloading
+                        {state?.updateKind === "source"
+                          ? (state.sourceBehindCount ?? 0) > 0
+                            ? "Syncing with T3 Code"
+                            : "Building personal update"
+                          : "Downloading"}
                         {typeof state.downloadPercent === "number"
                           ? ` (${Math.floor(state.downloadPercent)}%)`
                           : "…"}
@@ -184,7 +196,13 @@ export function SidebarUpdatePill() {
                   ) : (
                     <>
                       <DownloadIcon className="size-3.5" />
-                      <span>Update available</span>
+                      <span>
+                        {state?.updateKind === "source"
+                          ? (state.sourceBehindCount ?? 0) > 0
+                            ? "Sync With T3 Code"
+                            : "Personal Update"
+                          : "Update available"}
+                      </span>
                     </>
                   )}
                 </button>

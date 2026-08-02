@@ -29,12 +29,16 @@ import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as DesktopClerk from "./DesktopClerk.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 
-const makeDesktopClerkLayer = (isDevelopment = true, events: string[] = []) => {
+const makeDesktopClerkLayer = (
+  isDevelopment = true,
+  events: string[] = [],
+  userDataDirName = isDevelopment ? "t3code-dev" : "t3code",
+) => {
   const environment = DesktopEnvironment.DesktopEnvironment.of({
     stateDir: "/tmp/t3-state",
     isDevelopment,
     appDataDirectory: "/tmp/app-data",
-    userDataDirName: isDevelopment ? "t3code-dev" : "t3code",
+    userDataDirName,
     legacyUserDataDirName: isDevelopment ? "T3 Code (Dev)" : "T3 Code (Alpha)",
     path: { join: (...parts: ReadonlyArray<string>) => parts.join("/") },
   } as unknown as DesktopEnvironment.DesktopEnvironment["Service"]);
@@ -102,6 +106,25 @@ describe("DesktopClerk", () => {
       assert.deepEqual(events, ["setPath:userData:/tmp/app-data/t3code-dev", "createClerkBridge"]);
       storageMock.mockClear();
       createClerkBridgeMock.mockClear();
+    });
+  });
+
+  it.effect("disables native passkeys for the independently signed fork app", () => {
+    storageMock.mockReturnValue(storageAdapter);
+    createClerkBridgeMock.mockReturnValue({ cleanup: vi.fn(), isPrimaryInstance: true });
+
+    return Effect.gen(function* () {
+      yield* Effect.scoped(Layer.build(makeDesktopClerkLayer(false, [], "t3code-copy")));
+
+      assert.deepEqual(createClerkBridgeMock.mock.calls, [
+        [
+          {
+            storage: storageAdapter,
+            passkeys: false,
+            renderer: { scheme: "t3code", host: "app" },
+          },
+        ],
+      ]);
     });
   });
 
@@ -230,5 +253,22 @@ describe("DesktopClerk", () => {
     ]);
     storageMock.mockClear();
     createClerkBridgeMock.mockClear();
+  });
+
+  it("can disable native passkeys while retaining the Clerk OAuth bridge", () => {
+    const bridge = { cleanup: vi.fn(), isPrimaryInstance: true };
+    storageMock.mockReturnValue(storageAdapter);
+    createClerkBridgeMock.mockReturnValue(bridge);
+
+    assert.equal(DesktopClerk.createDesktopClerkBridge("/tmp/t3-state", false, false), bridge);
+    assert.deepEqual(createClerkBridgeMock.mock.calls, [
+      [
+        {
+          storage: storageAdapter,
+          passkeys: false,
+          renderer: { scheme: "t3code", host: "app" },
+        },
+      ],
+    ]);
   });
 });

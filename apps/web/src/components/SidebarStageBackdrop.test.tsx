@@ -12,6 +12,7 @@ describe("SidebarStageBackdrop", () => {
   it("resolves stage artwork only when enabled", () => {
     expect(resolveSidebarStageBackdropVariant("Dev")).toBe("dev");
     expect(resolveSidebarStageBackdropVariant("Nightly")).toBe("nightly");
+    expect(resolveSidebarStageBackdropVariant("Equinox")).toBe("equinox");
     expect(resolveSidebarStageBackdropVariant("Dev", false)).toBeNull();
     expect(resolveSidebarStageBackdropVariant("Alpha")).toBeNull();
   });
@@ -19,11 +20,12 @@ describe("SidebarStageBackdrop", () => {
   it("resolves supported environment pill labels", () => {
     expect(resolveEnvironmentIdentificationPillLabel("Dev")).toBe("Dev");
     expect(resolveEnvironmentIdentificationPillLabel("nightly")).toBe("Nightly");
+    expect(resolveEnvironmentIdentificationPillLabel("equinox")).toBe("Equinox");
     expect(resolveEnvironmentIdentificationPillLabel("Latest")).toBeNull();
     expect(resolveEnvironmentIdentificationPillLabel("Alpha")).toBeNull();
   });
 
-  it.each(["nightly", "dev"] as const)(
+  it.each(["nightly", "dev", "equinox"] as const)(
     "uses unique SVG definition ids when %s artwork is rendered more than once",
     (variant) => {
       const markup = renderToStaticMarkup(

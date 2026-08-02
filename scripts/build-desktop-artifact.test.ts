@@ -109,6 +109,14 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     });
   });
 
+  it("uses Equinox artwork for the personal fork build", () => {
+    assert.deepStrictEqual(resolveDesktopBuildIconAssets("0.0.17", "T3 Code (Equinox)"), {
+      macIconPng: BRAND_ASSET_PATHS.equinoxMacIconPng,
+      linuxIconPng: BRAND_ASSET_PATHS.productionLinuxIconPng,
+      windowsIconIco: BRAND_ASSET_PATHS.productionWindowsIconIco,
+    });
+  });
+
   it("switches the bundled splash and favicon branding for nightly versions", () => {
     assert.equal(resolveDesktopWebAssetBrand("0.0.17"), "production");
     assert.equal(resolveDesktopWebAssetBrand("0.0.17-nightly.20260413.42"), "nightly");
@@ -345,6 +353,17 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         undefined,
         undefined,
       );
+      const fork = yield* createBuildConfig(
+        "mac",
+        "dir",
+        "1.2.3",
+        false,
+        false,
+        undefined,
+        undefined,
+        "T3 Code",
+        "com.t3tools.t3code.copy",
+      );
 
       assert.notProperty(mac, "asarUnpack");
       assert.notProperty(linux, "asarUnpack");
@@ -354,6 +373,8 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.deepStrictEqual((linux.linux as Record<string, unknown>).protocols, [
         { name: "T3 Code", schemes: ["t3code", "t3code-dev"] },
       ]);
+      assert.equal(fork.productName, "T3 Code");
+      assert.equal(fork.appId, "com.t3tools.t3code.copy");
       for (const config of [mac, linux, win]) {
         assert.deepStrictEqual(config.electronLanguages, DESKTOP_ELECTRON_LANGUAGES);
         assert.deepStrictEqual(config.files, DESKTOP_FILE_EXCLUSIONS);
