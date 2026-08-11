@@ -16,6 +16,7 @@ import * as TestClock from "effect/testing/TestClock";
 import * as DesktopBackendPool from "../backend/DesktopBackendPool.ts";
 import * as DesktopConfig from "../app/DesktopConfig.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
+import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as ElectronUpdater from "../electron/ElectronUpdater.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
@@ -96,6 +97,28 @@ function makeHarness(options: UpdatesHarnessOptions = {}) {
       ).pipe(Effect.asVoid),
   } satisfies ElectronUpdater.ElectronUpdater["Service"]);
 
+  const appLayer = Layer.succeed(ElectronApp.ElectronApp, {
+    metadata: Effect.die("unexpected app metadata read"),
+    name: Effect.succeed("T3 Code"),
+    whenReady: Effect.void,
+    quit: Effect.void,
+    exit: () => Effect.void,
+    relaunch: () => Effect.void,
+    setPath: () => Effect.void,
+    setName: () => Effect.void,
+    setAboutPanelOptions: () => Effect.void,
+    setAppUserModelId: () => Effect.void,
+    getAppMetrics: Effect.succeed([]),
+    isDefaultProtocolClient: () => Effect.succeed(false),
+    setAsDefaultProtocolClient: () => Effect.succeed(false),
+    setDesktopName: () => Effect.void,
+    setDockIcon: () => Effect.void,
+    appendCommandLineSwitch: () => Effect.void,
+    removeCommandLineSwitch: () => Effect.void,
+    onBeforeQuitForUpdate: () => Effect.void,
+    on: () => Effect.void,
+  } satisfies ElectronApp.ElectronApp["Service"]);
+
   const windowLayer = Layer.succeed(ElectronWindow.ElectronWindow, {
     create: () => Effect.die("unexpected BrowserWindow creation"),
     main: Effect.succeed(Option.none()),
@@ -172,6 +195,7 @@ function makeHarness(options: UpdatesHarnessOptions = {}) {
 
   const layer = DesktopUpdates.layer.pipe(
     Layer.provideMerge(updaterLayer),
+    Layer.provideMerge(appLayer),
     Layer.provideMerge(windowLayer),
     Layer.provideMerge(backendLayer),
     Layer.provideMerge(DesktopState.layer),
@@ -208,6 +232,101 @@ function makeHarness(options: UpdatesHarnessOptions = {}) {
 }
 
 describe("DesktopUpdates", () => {
+  const sourceUpdateState: DesktopUpdateState = {
+    enabled: true,
+    status: "checking",
+    updateKind: "source",
+    channel: "equinox",
+    currentVersion: "1.2.3",
+    hostArch: "arm64",
+    appArch: "arm64",
+    runningUnderArm64Translation: false,
+    availableVersion: null,
+    downloadedVersion: null,
+    releaseNotes: [],
+    downloadPercent: null,
+    checkedAt: null,
+    message: null,
+    errorContext: null,
+    canRetry: false,
+  };
+
+  it("projects fork checks into source-aware update states", () => {
+    const localBuild = DesktopUpdates.reduceDesktopUpdateStateOnForkCommand(
+      sourceUpdateState,
+      {
+        status: "available",
+        repositoryPath: "/repo/equinox",
+        currentCommit: "fork-commit",
+        upstreamCommit: "upstream-commit",
+        behindCount: 0,
+        aheadCount: 2,
+        dirty: false,
+      },
+      "2026-08-10T00:00:00.000Z",
+    );
+    assert.equal(localBuild.status, "available");
+    assert.equal(localBuild.sourceAheadCount, 2);
+    assert.equal(localBuild.message, "Your fork changes are ready to rebuild and install.");
+
+    const upstreamBuild = DesktopUpdates.reduceDesktopUpdateStateOnForkCommand(
+      sourceUpdateState,
+      {
+        status: "available",
+        repositoryPath: "/repo/equinox",
+        upstreamCommit: "upstream-commit",
+        behindCount: 12,
+        dirty: false,
+      },
+      "2026-08-10T00:00:00.000Z",
+    );
+    assert.equal(
+      upstreamBuild.message,
+      "Official T3 Code changes are ready to merge into your fork.",
+    );
+  });
+
+  it("preserves fork conflict details for the global chat dispatcher", () => {
+    const conflict = DesktopUpdates.reduceDesktopUpdateStateOnForkCommand(
+      sourceUpdateState,
+      {
+        status: "conflict",
+        repositoryPath: "/repo/equinox",
+        currentCommit: "fork-commit",
+        upstreamCommit: "upstream-commit",
+        conflictFiles: ["apps/web/src/App.tsx", "apps/desktop/src/App.ts"],
+        message: "Rebase stopped with conflicts.",
+      },
+      "2026-08-10T00:00:00.000Z",
+    );
+
+    assert.equal(conflict.status, "error");
+    assert.equal(conflict.errorContext, "download");
+    assert.equal(conflict.canRetry, false);
+    assert.deepEqual(conflict.sourceConflictFiles, [
+      "apps/web/src/App.tsx",
+      "apps/desktop/src/App.ts",
+    ]);
+  });
+
+  it("marks successful fork builds as ready to install", () => {
+    const built = DesktopUpdates.reduceDesktopUpdateStateOnForkCommand(
+      sourceUpdateState,
+      {
+        status: "built",
+        repositoryPath: "/repo/equinox",
+        currentCommit: "1234567890abcdef",
+        upstreamCommit: "fedcba0987654321",
+        appPath: "/tmp/T3 Code (Equinox).app",
+      },
+      "2026-08-10T00:00:00.000Z",
+    );
+
+    assert.equal(built.status, "downloaded");
+    assert.equal(built.downloadedVersion, "1234567890ab");
+    assert.equal(built.availableVersion, "fedcba098765");
+  });
+
   it("preserves complete causes for update poller and event failures", () => {
     const cause = Cause.combine(
       Cause.fail(new Error("updater failed")),

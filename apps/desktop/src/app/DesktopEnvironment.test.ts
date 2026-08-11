@@ -98,6 +98,20 @@ describe("DesktopEnvironment", () => {
     }),
   );
 
+  it.effect("preserves a packaged fork display name", () =>
+    Effect.gen(function* () {
+      const environment = yield* makeEnvironment({
+        appName: "T3 Code (Equinox)",
+        isPackaged: true,
+      });
+
+      assert.equal(environment.displayName, "T3 Code (Equinox)");
+      assert.equal(environment.branding.displayName, "T3 Code (Equinox)");
+      assert.equal(environment.branding.stageLabel, "Equinox");
+      assert.equal(environment.userDataDirName, "t3code");
+    }),
+  );
+
   it.effect("keeps implicit development state separate from production state", () =>
     Effect.gen(function* () {
       const development = yield* makeEnvironment(
@@ -108,6 +122,23 @@ describe("DesktopEnvironment", () => {
 
       assert.equal(development.stateDir, "/Users/alice/.t3/dev");
       assert.equal(production.stateDir, "/Users/alice/.t3/userdata");
+    }),
+  );
+
+  it.effect("isolates the packaged standalone copy from the official app", () =>
+    Effect.gen(function* () {
+      const environment = yield* makeEnvironment({
+        appName: "T3 Code",
+        isPackaged: true,
+      });
+
+      assert.equal(environment.baseDir, "/Users/alice/.t3-copy");
+      assert.equal(environment.stateDir, "/Users/alice/.t3-copy/userdata");
+      assert.equal(environment.userDataDirName, "t3code-copy");
+      assert.equal(environment.legacyUserDataDirName, "t3code-copy");
+      assert.equal(environment.appUserModelId, "com.t3tools.t3code.copy");
+      assert.equal(environment.linuxDesktopEntryName, "t3code-copy.desktop");
+      assert.equal(environment.linuxWmClass, "t3code-copy");
     }),
   );
 

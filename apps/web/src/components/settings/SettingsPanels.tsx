@@ -344,22 +344,39 @@ function AboutVersionSection() {
   }, [isUpdateActionPending, updateState]);
 
   const action = updateState ? resolveDesktopUpdateButtonAction(updateState) : "none";
+  const isSourceUpdate = updateState?.updateKind === "source";
+  const isUpstreamSync = isSourceUpdate && (updateState?.sourceBehindCount ?? 0) > 0;
   const buttonTooltip = updateState ? getDesktopUpdateButtonTooltip(updateState) : null;
   const buttonDisabled =
     action === "none"
       ? !canCheckForUpdate(updateState)
       : isDesktopUpdateButtonDisabled(updateState);
 
-  const actionLabel: Record<string, string> = { download: "Download", install: "Install" };
+  const actionLabel: Record<string, string> = {
+    download: isSourceUpdate
+      ? isUpstreamSync
+        ? "Sync With T3 Code"
+        : "Personal Update"
+      : "Download",
+    install: "Restart & Install",
+  };
   const statusLabel: Record<string, string> = {
     checking: "Checking…",
-    downloading: "Downloading…",
-    "up-to-date": "Up to Date",
+    downloading: isSourceUpdate
+      ? isUpstreamSync
+        ? "Syncing With T3 Code…"
+        : "Building Personal Update…"
+      : "Downloading…",
+    "up-to-date": isSourceUpdate ? "Fork Up to Date" : "Up to Date",
   };
   const buttonLabel =
-    actionLabel[action] ?? statusLabel[updateState?.status ?? ""] ?? "Check for Updates";
-  const description =
-    action === "download" || action === "install"
+    actionLabel[action] ??
+    statusLabel[updateState?.status ?? ""] ??
+    (isSourceUpdate ? "Check Upstream" : "Check for Updates");
+  const description = isSourceUpdate
+    ? (updateState?.message ??
+      "Built from EricGorokhovsky2009/T3-Code-Equinox and synchronized with official T3 Code.")
+    : action === "download" || action === "install"
       ? "Update available."
       : "Current version of the application.";
 
@@ -389,7 +406,7 @@ function AboutVersionSection() {
       {hasDesktopBridge ? (
         <SettingsRow
           title="Update track"
-          description="Stable follows full releases. Nightly follows the nightly desktop channel and can switch back to stable immediately."
+          description="Alpha and Nightly follow official T3 Code tracks while preserving the Equinox shell. Equinox follows your personal fork."
           control={
             <Select
               value={selectedUpdateChannel}
@@ -403,20 +420,52 @@ function AboutVersionSection() {
                 disabled={isChangingUpdateChannel}
               >
                 <SelectValue>
-                  {selectedUpdateChannel === "nightly" ? "Nightly" : "Stable"}
+                  {selectedUpdateChannel === "nightly"
+                    ? "Nightly"
+                    : selectedUpdateChannel === "equinox"
+                      ? "Equinox"
+                      : "Alpha"}
                 </SelectValue>
               </SelectTrigger>
               <SelectPopup align="end" alignItemWithTrigger={false}>
                 <SelectItem hideIndicator value="latest">
-                  Stable
+                  Alpha
                 </SelectItem>
                 <SelectItem hideIndicator value="nightly">
                   Nightly
+                </SelectItem>
+                <SelectItem hideIndicator value="equinox">
+                  Equinox
                 </SelectItem>
               </SelectPopup>
             </Select>
           }
         />
+      ) : null}
+      {hasDesktopBridge && isSourceUpdate ? (
+        <>
+          <SettingsRow
+            title="Update source"
+            description="The Equinox feature commit rebases onto official changes before T3 Code is rebuilt. Official release binaries are never downloaded."
+            control={
+              <div className="max-w-64 text-right font-mono text-[11px] text-muted-foreground">
+                <div>EricGorokhovsky2009/T3-Code-Equinox</div>
+                <div>
+                  {updateState?.sourceCurrentCommit?.slice(0, 12) ?? "unknown"} →{" "}
+                  {updateState?.sourceUpstreamCommit?.slice(0, 12) ?? "unknown"}
+                </div>
+              </div>
+            }
+          />
+          {(updateState?.sourceConflictFiles?.length ?? 0) > 0 ? (
+            <SettingsRow
+              title="Merge needs attention"
+              description={`${updateState?.sourceConflictFiles?.length ?? 0} conflicted file${
+                updateState?.sourceConflictFiles?.length === 1 ? "" : "s"
+              }. Your custom changes and upstream changes are both still present.`}
+            />
+          ) : null}
+        </>
       ) : selectedHostedAppChannel ? (
         <SettingsRow
           title="Update track"

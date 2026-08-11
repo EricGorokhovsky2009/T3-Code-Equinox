@@ -28,7 +28,7 @@ const DesktopSettingsPatch = Schema.Struct({
   serverExposureMode: Schema.optionalKey(Schema.Literals(["local-only", "network-accessible"])),
   tailscaleServeEnabled: Schema.optionalKey(Schema.Boolean),
   tailscaleServePort: Schema.optionalKey(Schema.Number),
-  updateChannel: Schema.optionalKey(Schema.Literals(["latest", "nightly"])),
+  updateChannel: Schema.optionalKey(Schema.Literals(["latest", "nightly", "equinox"])),
   updateChannelConfiguredByUser: Schema.optionalKey(Schema.Boolean),
   wslBackendEnabled: Schema.optionalKey(Schema.Boolean),
   wslMode: Schema.optionalKey(Schema.Literals(["local", "wsl"])),
@@ -183,6 +183,26 @@ describe("DesktopSettings", () => {
           error.message,
           `Desktop settings write failed during replace-settings-file at ${environment.desktopSettingsPath}.`,
         );
+      }),
+    ),
+  );
+
+  it.effect("persists the Equinox source update channel", () =>
+    withSettings(
+      Effect.gen(function* () {
+        const settings = yield* DesktopAppSettings.DesktopAppSettings;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const environment = yield* DesktopEnvironment.DesktopEnvironment;
+
+        const updateChannel = yield* settings.setUpdateChannel("equinox");
+        assert.isTrue(updateChannel.changed);
+        assert.equal(updateChannel.settings.updateChannel, "equinox");
+        assert.equal(updateChannel.settings.updateChannelConfiguredByUser, true);
+
+        const persisted = yield* fileSystem.readFileString(environment.desktopSettingsPath, "utf8");
+        const document = yield* decodeDesktopSettingsPatch(persisted);
+        assert.equal(document.updateChannel, "equinox");
+        assert.equal(document.updateChannelConfiguredByUser, true);
       }),
     ),
   );

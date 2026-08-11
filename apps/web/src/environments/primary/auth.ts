@@ -307,6 +307,13 @@ function waitForBootstrapRetry(delayMs: number): Promise<void> {
 
 function isTransientBootstrapError(error: unknown): boolean {
   if (isPrimaryEnvironmentRequestError(error)) {
+    if (
+      error.status === 500 &&
+      error.operation === "fetch-session-state" &&
+      window.desktopBridge !== undefined
+    ) {
+      return true;
+    }
     return TRANSIENT_BOOTSTRAP_STATUS_CODES.has(error.status);
   }
 

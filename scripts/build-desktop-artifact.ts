@@ -41,6 +41,11 @@ const APPLE_TEAM_ID_PATTERN = /^[A-Z0-9]{10}$/u;
 const BuildPlatform = Schema.Literals(["mac", "linux", "win"]);
 const BuildArch = Schema.Literals(["arm64", "x64", "universal"]);
 
+function reportForkBuildProgress(percent: number): void {
+  if (!process.env.T3CODE_FORK_SOURCE_REPOSITORY) return;
+  process.stdout.write(`${JSON.stringify({ event: "download-progress", percent })}\n`);
+}
+
 const WorkspaceConfig = Schema.Struct({
   catalog: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   overrides: Schema.optional(Schema.Record(Schema.String, Schema.String)),
@@ -606,13 +611,18 @@ interface ResolvedBuildOptions {
   readonly mockUpdates: boolean;
   readonly mockUpdateServerPort: number | undefined;
   readonly wslPrebuild: string | undefined;
+  readonly forkSourceRepository: string | undefined;
+  readonly forkDisplayName: string | undefined;
+  readonly forkAppId: string | undefined;
 }
 
 interface StagePackageJson {
   readonly name: string;
   readonly version: string;
   readonly buildVersion: string;
+  readonly productName: string;
   readonly t3codeCommitHash: string;
+  readonly t3codeForkSourceRepository?: string;
   readonly private: true;
   readonly packageManager: string;
   readonly description: string;
@@ -1040,6 +1050,9 @@ const BuildEnvConfig = Config.all({
   // into the staged node-pty so the WSL backend ships a ready binary and never
   // compiles on the user's machine.
   wslPrebuild: Config.string("T3CODE_DESKTOP_WSL_PREBUILD").pipe(Config.option),
+  forkSourceRepository: Config.string("T3CODE_FORK_SOURCE_REPOSITORY").pipe(Config.option),
+  forkDisplayName: Config.string("T3CODE_FORK_DISPLAY_NAME").pipe(Config.option),
+  forkAppId: Config.string("T3CODE_FORK_APP_ID").pipe(Config.option),
 });
 
 const MockUpdateServerPortSchema = Schema.NumberFromString.check(
@@ -1133,6 +1146,9 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
 
   const wslPrebuild =
     Option.getOrUndefined(input.wslPrebuild) ?? Option.getOrUndefined(env.wslPrebuild);
+  const forkSourceRepository = Option.getOrUndefined(env.forkSourceRepository)?.trim() || undefined;
+  const forkDisplayName = Option.getOrUndefined(env.forkDisplayName)?.trim() || undefined;
+  const forkAppId = Option.getOrUndefined(env.forkAppId)?.trim() || undefined;
 
   return {
     platform,
@@ -1147,6 +1163,9 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
     mockUpdates,
     mockUpdateServerPort,
     wslPrebuild,
+    forkSourceRepository,
+    forkDisplayName,
+    forkAppId,
   } satisfies ResolvedBuildOptions;
 });
 
@@ -1482,7 +1501,17 @@ export function resolveDesktopWebAssetBrand(version: string): WebAssetBrand {
   return resolveWebAssetBrandForChannel(resolveDesktopUpdateChannel(version));
 }
 
-export function resolveDesktopBuildIconAssets(version: string): DesktopBuildIconAssets {
+export function resolveDesktopBuildIconAssets(
+  version: string,
+  forkDisplayName?: string,
+): DesktopBuildIconAssets {
+  if (forkDisplayName === "T3 Code (Equinox)") {
+    return {
+      macIconPng: BRAND_ASSET_PATHS.equinoxMacIconPng,
+      linuxIconPng: BRAND_ASSET_PATHS.productionLinuxIconPng,
+      windowsIconIco: BRAND_ASSET_PATHS.productionWindowsIconIco,
+    };
+  }
   if (resolveDesktopUpdateChannel(version) === "nightly") {
     return {
       macIconPng: BRAND_ASSET_PATHS.nightlyMacIconPng,
@@ -1534,10 +1563,12 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
         readonly provisioningProfilePath: string;
       }
     | undefined,
+  productName = resolveDesktopProductName(version),
+  appId = DESKTOP_APP_ID,
 ) {
   const buildConfig: Record<string, unknown> = {
-    appId: DESKTOP_APP_ID,
-    productName: resolveDesktopProductName(version),
+    appId,
+    productName,
     artifactName: "T3-Code-${version}-${arch}.${ext}",
     electronLanguages: [...DESKTOP_ELECTRON_LANGUAGES],
     files: [...DESKTOP_FILE_EXCLUSIONS],
@@ -1775,7 +1806,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   });
 
   const appVersion = options.version ?? serverPackageJson.version;
-  const iconAssets = resolveDesktopBuildIconAssets(appVersion);
+  const iconAssets = resolveDesktopBuildIconAssets(appVersion, options.forkDisplayName);
   const commitHash = yield* resolveGitCommitHash(repoRoot);
   const mkdir = options.keepStage ? fs.makeTempDirectory : fs.makeTempDirectoryScoped;
   const stageRoot = yield* mkdir({
@@ -1792,6 +1823,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   const bundledClientEntry = path.join(distDirs.serverDist, "client/index.html");
 
   if (!options.skipBuild) {
+    reportForkBuildProgress(45);
     yield* Effect.log("[desktop-artifact] Building desktop/server/web artifacts...");
     const spawnCommand = yield* resolveSpawnCommand("vp", ["run", "build:desktop"]);
     yield* runCommand(
@@ -1801,6 +1833,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       }),
       { label: "vp run build:desktop", verbose: options.verbose },
     );
+    reportForkBuildProgress(60);
   }
 
   const requiredBuildInputs = [
@@ -1828,6 +1861,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   const webAssetBrand = resolveDesktopWebAssetBrand(appVersion);
   yield* applyWebBrandAssets(webAssetBrand, "apps/server/dist/client");
   yield* Effect.log(`[desktop-artifact] Applied ${webAssetBrand} web client branding.`);
+  reportForkBuildProgress(65);
   yield* validateBundledClientAssets(path.dirname(bundledClientEntry));
 
   yield* fs.makeDirectory(path.join(stageAppDir, "apps/desktop"), { recursive: true });
@@ -1915,7 +1949,11 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     name: "t3code",
     version: appVersion,
     buildVersion: appVersion,
+    productName: options.forkDisplayName ?? resolveDesktopProductName(appVersion),
     t3codeCommitHash: commitHash,
+    ...(options.forkSourceRepository
+      ? { t3codeForkSourceRepository: options.forkSourceRepository }
+      : {}),
     private: true,
     packageManager: rootPackageJson.packageManager,
     description: "T3 Code desktop build",
@@ -1934,6 +1972,8 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
             provisioningProfilePath: macPasskeySigning.provisioningProfilePath,
           }
         : undefined,
+      options.forkDisplayName ?? resolveDesktopProductName(appVersion),
+      options.forkAppId ?? DESKTOP_APP_ID,
     ),
     dependencies: stageDependencies,
     devDependencies: {
@@ -1961,6 +2001,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   }
 
   yield* Effect.log("[desktop-artifact] Installing staged production dependencies...");
+  reportForkBuildProgress(72);
   const installCommand = yield* resolveSpawnCommand("vp", [...STAGE_INSTALL_ARGS]);
   yield* runCommand(
     ChildProcess.make(installCommand.command, installCommand.args, {
@@ -2021,6 +2062,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   yield* Effect.log(
     `[desktop-artifact] Building ${options.platform}/${options.target} (arch=${options.arch}, version=${appVersion})...`,
   );
+  reportForkBuildProgress(82);
   const builderArgs = [
     "exec",
     "--filter",
@@ -2046,6 +2088,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       verbose: options.verbose,
     },
   );
+  reportForkBuildProgress(88);
 
   const stageDistDir = path.join(stageAppDir, "dist");
   if (!(yield* fs.exists(stageDistDir))) {
@@ -2063,10 +2106,21 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   for (const entry of stageEntries) {
     const from = path.join(stageDistDir, entry);
     const stat = yield* fs.stat(from).pipe(Effect.orElseSucceed(() => null));
-    if (!stat || stat.type !== "File") continue;
+    if (!stat || (stat.type !== "File" && stat.type !== "Directory")) continue;
 
     const to = path.join(options.outputDir, entry);
-    yield* fs.copyFile(from, to);
+    if (stat.type === "Directory") {
+      if (hostPlatform === "darwin") {
+        yield* runCommand(ChildProcess.make("/usr/bin/ditto", [from, to]), {
+          label: `/usr/bin/ditto ${from} ${to}`,
+          verbose: options.verbose,
+        });
+      } else {
+        yield* fs.copy(from, to);
+      }
+    } else {
+      yield* fs.copyFile(from, to);
+    }
     copiedArtifacts.push(to);
   }
 
