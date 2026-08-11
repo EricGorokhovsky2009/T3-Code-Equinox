@@ -459,10 +459,10 @@ function AboutVersionSection() {
           />
           {(updateState?.sourceConflictFiles?.length ?? 0) > 0 ? (
             <SettingsRow
-              title="Merge needs attention"
+              title="Resolving merge conflicts"
               description={`${updateState?.sourceConflictFiles?.length ?? 0} conflicted file${
                 updateState?.sourceConflictFiles?.length === 1 ? "" : "s"
-              }. Your custom changes and upstream changes are both still present.`}
+              }. The app sent the interrupted rebase to a dedicated chat task with the full repository and conflict context.`}
             />
           ) : null}
         </>

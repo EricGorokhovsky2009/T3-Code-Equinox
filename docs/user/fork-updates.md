@@ -14,9 +14,13 @@ With T3 Code**, select it. T3 Code then:
 
 The updater never deletes `~/.t3` or the app's Application Support data.
 
-If Git reports synchronization conflicts, the app leaves the rebase in place and lists the conflicted
-files in Settings. Resolve the interrupted rebase in the source project, then check for updates again.
-The updater never resets, combines, or discards custom changes.
+If Git reports synchronization conflicts, the app leaves the rebase in place and immediately opens
+a dedicated chat task for the local Equinox source project. That task receives the repository path,
+target upstream commit, conflicted files, and the requirements needed to preserve both upstream and
+Equinox behavior. Settings continues to show the conflict state while the task resolves and verifies
+the interrupted rebase. If the source project or a coding provider is unavailable, the app reports
+that instead of silently losing the conflict. The updater never resets, combines, or discards custom
+changes.
 
 Settings → About shows the fork repository and the local/upstream commit IDs used by the update
 check.
