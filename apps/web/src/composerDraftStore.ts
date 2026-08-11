@@ -85,12 +85,28 @@ export const PersistedComposerImageAttachment = Schema.Struct({
   mimeType: Schema.String,
   sizeBytes: Schema.Number,
   dataUrl: Schema.String,
+  appshot: Schema.optionalKey(
+    Schema.Struct({
+      appName: Schema.String,
+      windowTitle: Schema.NullOr(Schema.String),
+      accessibleText: Schema.String,
+      appIconDataUrl: Schema.NullOr(Schema.String),
+      approval: Schema.Literals(["supervised", "automatic"]),
+    }),
+  ),
 });
 export type PersistedComposerImageAttachment = typeof PersistedComposerImageAttachment.Type;
 
 export interface ComposerImageAttachment extends Omit<ChatImageAttachment, "previewUrl"> {
   previewUrl: string;
   file: File;
+  appshot?: {
+    readonly appName: string;
+    readonly windowTitle: string | null;
+    readonly accessibleText: string;
+    readonly appIconDataUrl: string | null;
+    readonly approval: "supervised" | "automatic";
+  };
 }
 
 const PersistedTerminalContextDraft = Schema.Struct({
@@ -1098,6 +1114,7 @@ function normalizePersistedAttachment(value: unknown): PersistedComposerImageAtt
   const mimeType = candidate.mimeType;
   const sizeBytes = candidate.sizeBytes;
   const dataUrl = candidate.dataUrl;
+  const rawAppshot = candidate.appshot;
   if (
     typeof id !== "string" ||
     typeof name !== "string" ||
@@ -1110,12 +1127,26 @@ function normalizePersistedAttachment(value: unknown): PersistedComposerImageAtt
   ) {
     return null;
   }
+  const appshot =
+    rawAppshot &&
+    typeof rawAppshot === "object" &&
+    typeof (rawAppshot as Record<string, unknown>).appName === "string" &&
+    (typeof (rawAppshot as Record<string, unknown>).windowTitle === "string" ||
+      (rawAppshot as Record<string, unknown>).windowTitle === null) &&
+    typeof (rawAppshot as Record<string, unknown>).accessibleText === "string" &&
+    (typeof (rawAppshot as Record<string, unknown>).appIconDataUrl === "string" ||
+      (rawAppshot as Record<string, unknown>).appIconDataUrl === null) &&
+    ((rawAppshot as Record<string, unknown>).approval === "supervised" ||
+      (rawAppshot as Record<string, unknown>).approval === "automatic")
+      ? (rawAppshot as PersistedComposerImageAttachment["appshot"])
+      : undefined;
   return {
     id,
     name,
     mimeType,
     sizeBytes,
     dataUrl,
+    ...(appshot ? { appshot } : {}),
   };
 }
 
@@ -2178,6 +2209,7 @@ export function hydrateImagesFromPersisted(
         sizeBytes: attachment.sizeBytes,
         previewUrl: attachment.dataUrl,
         file,
+        ...(attachment.appshot ? { appshot: attachment.appshot } : {}),
       } satisfies ComposerImageAttachment,
     ];
   });

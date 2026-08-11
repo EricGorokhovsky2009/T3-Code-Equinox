@@ -135,6 +135,23 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   checkForUpdate: () => ipcRenderer.invoke(IpcChannels.UPDATE_CHECK_CHANNEL),
   downloadUpdate: () => ipcRenderer.invoke(IpcChannels.UPDATE_DOWNLOAD_CHANNEL),
   installUpdate: () => ipcRenderer.invoke(IpcChannels.UPDATE_INSTALL_CHANNEL),
+  appshots: {
+    getStatus: () => ipcRenderer.invoke(IpcChannels.APPSHOT_GET_STATUS_CHANNEL),
+    configureShortcut: (config) =>
+      ipcRenderer.invoke(IpcChannels.APPSHOT_CONFIGURE_SHORTCUT_CHANNEL, config),
+    request: () => ipcRenderer.invoke(IpcChannels.APPSHOT_REQUEST_CHANNEL),
+    capture: (input) => ipcRenderer.invoke(IpcChannels.APPSHOT_CAPTURE_CHANNEL, input),
+    onRequested: (listener) => {
+      const wrappedListener = (_event: Electron.IpcRendererEvent, target: unknown) => {
+        if (typeof target !== "object" || target === null) return;
+        listener(target as Parameters<typeof listener>[0]);
+      };
+      ipcRenderer.on(IpcChannels.APPSHOT_REQUESTED_CHANNEL, wrappedListener);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.APPSHOT_REQUESTED_CHANNEL, wrappedListener);
+      };
+    },
+  },
   onUpdateState: (listener) => {
     const wrappedListener = (_event: Electron.IpcRendererEvent, state: unknown) => {
       if (typeof state !== "object" || state === null) return;

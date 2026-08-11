@@ -86,6 +86,7 @@ import type {
   OrchestrationShellStreamItem,
   OrchestrationSubscribeThreadInput,
   OrchestrationThreadStreamItem,
+  RuntimeMode,
 } from "./orchestration.ts";
 import { EnvironmentId } from "./baseSchemas.ts";
 import { AuthAccessTokenResult, AuthSessionState, AuthWebSocketTicketResult } from "./auth.ts";
@@ -1006,6 +1007,69 @@ export const DesktopPreviewRecordingSaveInputSchema = Schema.Struct({
   data: Schema.Uint8Array,
 });
 
+export const DesktopAppshotTargetSchema = Schema.Struct({
+  requestId: Schema.String,
+  pid: Schema.Int.check(Schema.isGreaterThan(0)),
+  appName: Schema.String,
+  bundleId: Schema.NullOr(Schema.String),
+  appIconDataUrl: Schema.NullOr(Schema.String),
+  capturedAt: Schema.String,
+});
+export type DesktopAppshotTarget = typeof DesktopAppshotTargetSchema.Type;
+
+export const DesktopAppshotCaptureInputSchema = Schema.Struct({
+  requestId: Schema.String,
+  runtimeMode: Schema.Literals(["approval-required", "auto-accept-edits", "auto", "full-access"]),
+});
+export interface DesktopAppshotCaptureInput {
+  readonly requestId: string;
+  readonly runtimeMode: RuntimeMode;
+}
+
+export const DesktopAppshotCaptureResultSchema = Schema.Union([
+  Schema.Struct({ status: Schema.Literal("cancelled") }),
+  Schema.Struct({
+    status: Schema.Literal("error"),
+    code: Schema.Literals([
+      "request-expired",
+      "screen-permission-required",
+      "accessibility-permission-required",
+      "window-not-found",
+      "capture-failed",
+    ]),
+    message: Schema.String,
+  }),
+  Schema.Struct({
+    status: Schema.Literal("captured"),
+    appName: Schema.String,
+    windowTitle: Schema.NullOr(Schema.String),
+    appIconDataUrl: Schema.NullOr(Schema.String),
+    dataUrl: Schema.String,
+    width: Schema.Int.check(Schema.isGreaterThan(0)),
+    height: Schema.Int.check(Schema.isGreaterThan(0)),
+    accessibleText: Schema.String,
+    approval: Schema.Literals(["supervised", "automatic"]),
+  }),
+]);
+export type DesktopAppshotCaptureResult = typeof DesktopAppshotCaptureResultSchema.Type;
+
+export const DesktopAppshotShortcutConfigSchema = Schema.Struct({
+  enabled: Schema.Boolean,
+  shortcut: Schema.String,
+});
+export type DesktopAppshotShortcutConfig = typeof DesktopAppshotShortcutConfigSchema.Type;
+
+export const DesktopAppshotStatusSchema = Schema.Struct({
+  available: Schema.Boolean,
+  enabled: Schema.Boolean,
+  shortcut: Schema.String,
+  registered: Schema.Boolean,
+  screenPermission: Schema.Literals(["granted", "denied", "restricted", "unknown"]),
+  accessibilityPermission: Schema.Boolean,
+  error: Schema.NullOr(Schema.Literals(["unsupported-platform", "invalid-shortcut", "conflict"])),
+});
+export type DesktopAppshotStatus = typeof DesktopAppshotStatusSchema.Type;
+
 export const DesktopPreviewAutomationClickInputSchema = Schema.Struct({
   tabId: DesktopPreviewTabIdSchema,
   input: PreviewAutomationClickInput,
@@ -1099,6 +1163,13 @@ export interface DesktopBridge {
   downloadUpdate: () => Promise<DesktopUpdateActionResult>;
   installUpdate: () => Promise<DesktopUpdateActionResult>;
   onUpdateState: (listener: (state: DesktopUpdateState) => void) => () => void;
+  appshots?: {
+    getStatus: () => Promise<DesktopAppshotStatus>;
+    configureShortcut: (config: DesktopAppshotShortcutConfig) => Promise<DesktopAppshotStatus>;
+    request: () => Promise<DesktopAppshotTarget>;
+    capture: (input: DesktopAppshotCaptureInput) => Promise<DesktopAppshotCaptureResult>;
+    onRequested: (listener: (target: DesktopAppshotTarget) => void) => () => void;
+  };
   /**
    * Desktop-only preview surface. Present iff the renderer is hosted by the
    * Electron desktop build; web builds have `preview === undefined`.

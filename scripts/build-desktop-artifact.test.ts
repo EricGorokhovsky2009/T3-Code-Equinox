@@ -579,6 +579,10 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         from: "apps/desktop/prod-resources/resource-monitor",
         to: "resource-monitor",
       },
+      {
+        from: "apps/desktop/prod-resources/appshot-shortcut",
+        to: "appshot-shortcut",
+      },
     ]);
     assert.deepStrictEqual(resolveResourceMonitorRustTargets("mac", "universal"), [
       "aarch64-apple-darwin",

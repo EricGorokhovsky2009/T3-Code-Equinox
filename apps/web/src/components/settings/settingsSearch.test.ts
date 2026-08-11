@@ -85,4 +85,15 @@ describe("searchSettings", () => {
       targetId: "appearance",
     });
   });
+
+  it("routes Appshot controls to the Appshots section", () => {
+    expect(searchSettings("Appshot shortcut")[0]).toMatchObject({
+      id: "global-appshot-shortcut",
+      to: "/settings/appshots",
+    });
+    expect(searchSettings("macOS permissions")[0]).toMatchObject({
+      id: "appshot-macos-permissions",
+      to: "/settings/appshots",
+    });
+  });
 });

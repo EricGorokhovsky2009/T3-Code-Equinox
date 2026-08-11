@@ -655,6 +655,10 @@ export const DESKTOP_EXTRA_RESOURCES = [
     from: "apps/desktop/prod-resources/resource-monitor",
     to: "resource-monitor",
   },
+  {
+    from: "apps/desktop/prod-resources/appshot-shortcut",
+    to: "appshot-shortcut",
+  },
 ] as const;
 
 export interface MacPasskeySigningConfiguration {
@@ -1272,6 +1276,53 @@ const stageResourceMonitor = Effect.fn("stageResourceMonitor")(function* (input:
   }
 });
 
+const stageAppshotShortcut = Effect.fn("stageAppshotShortcut")(function* (input: {
+  readonly repoRoot: string;
+  readonly stageResourcesDir: string;
+  readonly platform: typeof BuildPlatform.Type;
+  readonly arch: typeof BuildArch.Type;
+  readonly verbose: boolean;
+}) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const destinationDirectory = path.join(input.stageResourcesDir, "appshot-shortcut");
+  yield* fs.remove(destinationDirectory, { recursive: true, force: true }).pipe(Effect.ignore);
+  yield* fs.makeDirectory(destinationDirectory, { recursive: true });
+  if (input.platform !== "mac") return;
+
+  const sourcePath = path.join(input.repoRoot, "native/appshot-shortcut/main.swift");
+  const destinationPath = path.join(destinationDirectory, "t3-appshot-shortcut");
+  const architectures = input.arch === "universal" ? ["arm64", "x86_64"] : [input.arch];
+  const binaries: string[] = [];
+  for (const architecture of architectures) {
+    const binaryPath = path.join(destinationDirectory, `t3-appshot-shortcut-${architecture}`);
+    yield* runCommand(
+      ChildProcess.make("xcrun", [
+        "swiftc",
+        "-O",
+        "-target",
+        `${architecture}-apple-macos11.0`,
+        sourcePath,
+        "-o",
+        binaryPath,
+      ]),
+      { label: `swiftc Appshot shortcut (${architecture})`, verbose: input.verbose },
+    );
+    binaries.push(binaryPath);
+  }
+
+  if (binaries.length === 1) {
+    yield* fs.rename(binaries[0]!, destinationPath);
+  } else {
+    yield* runCommand(
+      ChildProcess.make("lipo", ["-create", ...binaries, "-output", destinationPath]),
+      { label: "lipo Appshot shortcut universal binary", verbose: input.verbose },
+    );
+    for (const binary of binaries) yield* fs.remove(binary, { force: true });
+  }
+  yield* fs.chmod(destinationPath, 0o755);
+});
+
 function generateMacIconSet(
   sourcePng: string,
   targetIcns: string,
@@ -1872,6 +1923,13 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   yield* fs.copy(distDirs.desktopResources, stageResourcesDir);
   yield* fs.copy(distDirs.serverDist, path.join(stageAppDir, "apps/server/dist"));
   yield* stageResourceMonitor({
+    repoRoot,
+    stageResourcesDir,
+    platform: options.platform,
+    arch: options.arch,
+    verbose: options.verbose,
+  });
+  yield* stageAppshotShortcut({
     repoRoot,
     stageResourcesDir,
     platform: options.platform,

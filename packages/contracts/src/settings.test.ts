@@ -33,6 +33,23 @@ describe("ClientSettings word wrap", () => {
   });
 });
 
+describe("ClientSettings Appshots", () => {
+  it("enables the global desktop shortcut by default", () => {
+    const settings = decodeClientSettings({});
+    expect(settings.appshotsEnabled).toBe(true);
+    expect(settings.appshotShortcut).toBe("Option Option");
+  });
+
+  it("accepts Appshot preference patches", () => {
+    expect(
+      decodeClientSettingsPatch({
+        appshotsEnabled: false,
+        appshotShortcut: "Command+Shift+8",
+      }),
+    ).toEqual({ appshotsEnabled: false, appshotShortcut: "Command+Shift+8" });
+  });
+});
+
 describe("ClientSettings glass opacity", () => {
   it("defaults to a readable translucent surface", () => {
     expect(decodeClientSettings({}).glassOpacity).toBe(80);

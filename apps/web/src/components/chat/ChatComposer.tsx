@@ -1,5 +1,6 @@
 import type {
   ApprovalRequestId,
+  DesktopAppshotTarget,
   EnvironmentId,
   ModelSelection,
   PreviewAnnotationPayload,
@@ -64,6 +65,8 @@ import {
 import { ComposerStashBadge } from "./ComposerStashBadge";
 import { ComposerStashMenu } from "./ComposerStashMenu";
 import { compressImageForStash, compressImageToByteLimit } from "../../lib/imageCompression";
+import { captureToComposerImage } from "../../lib/appshots";
+import { dispatchAppshotRequest, registerAppshotRequestHandler } from "../../appshotRequestBus";
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
 import { getTerminalFocusOwner } from "../../lib/terminalFocus";
 import { resolveShortcutCommand } from "../../keybindings";
@@ -77,6 +80,7 @@ import {
 import { useComposerPathSearch } from "../../lib/composerPathSearchState";
 import { type ElementContextDraft } from "../../lib/elementContext";
 import { ComposerPendingElementContexts } from "./ComposerPendingElementContexts";
+import { AppshotAttachmentCard, PendingAppshotCard } from "./AppshotAttachmentCard";
 import { ComposerPendingReviewComments } from "./ComposerPendingReviewComments";
 import { ComposerPreviewAnnotationCards } from "./ComposerPreviewAnnotationCards";
 import {
@@ -106,6 +110,7 @@ import { buildExpandedImagePreview, type ExpandedImagePreview } from "./Expanded
 import { basenameOfPath } from "../../pierre-icons";
 import { cn, randomUUID } from "~/lib/utils";
 import { Separator } from "../ui/separator";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 
 type ComposerCommandMenuPosition = {
   bottom: number;
@@ -193,12 +198,15 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
 import {
   BotIcon,
+  CameraIcon,
   CircleAlertIcon,
+  ImagePlusIcon,
   PencilRulerIcon,
   type LucideIcon,
   LockIcon,
   LockOpenIcon,
   PenLineIcon,
+  PlusIcon,
   SparklesIcon,
   XIcon,
 } from "lucide-react";
@@ -949,6 +957,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const [isComposerFocused, setIsComposerFocused] = useState(false);
   const [composerMenuAnchor, setComposerMenuAnchor] = useState<HTMLDivElement | null>(null);
   const [isStashMenuOpen, setIsStashMenuOpen] = useState(false);
+  const [capturingAppshot, setCapturingAppshot] = useState<DesktopAppshotTarget | null>(null);
   const [stashPulse, setStashPulse] = useState<{ key: number; active: boolean }>({
     key: 0,
     active: false,
@@ -961,6 +970,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // Refs
   // ------------------------------------------------------------------
   const composerEditorRef = useRef<ComposerPromptEditorHandle>(null);
+  const composerImagePickerRef = useRef<HTMLInputElement>(null);
+  const capturingAppshotRef = useRef<DesktopAppshotTarget | null>(null);
   const composerFormRef = useRef<HTMLFormElement>(null);
   const composerSurfaceRef = useRef<HTMLDivElement>(null);
   const composerSelectLockRef = useRef(false);
@@ -1275,6 +1286,119 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     [composerDraftTarget, removeComposerDraftImage],
   );
 
+  useEffect(() => {
+    const appshots = window.desktopBridge?.appshots;
+    if (!appshots) return;
+    return registerAppshotRequestHandler((target) => {
+      const targetThreadId = activeThreadId;
+      if (!targetThreadId || projectSelectionRequired) {
+        toastManager.add({
+          type: "warning",
+          title: "Choose a task before capturing an Appshot",
+        });
+        return;
+      }
+      if (pendingUserInputs.length > 0) {
+        toastManager.add({
+          type: "warning",
+          title: "Finish the current questions before attaching an Appshot",
+        });
+        return;
+      }
+      if (composerImagesRef.current.length >= PROVIDER_SEND_TURN_MAX_ATTACHMENTS) {
+        toastManager.add({
+          type: "warning",
+          title: "Attachment limit reached",
+          description: `Remove an image before capturing ${target.appName}.`,
+        });
+        return;
+      }
+      if (capturingAppshotRef.current) {
+        toastManager.add({
+          type: "info",
+          title: "An Appshot is already being captured",
+        });
+        return;
+      }
+      capturingAppshotRef.current = target;
+      setCapturingAppshot(target);
+      void (async () => {
+        const result = await appshots.capture({ requestId: target.requestId, runtimeMode });
+        if (result.status === "cancelled") return;
+        if (result.status === "error") {
+          toastManager.add({
+            type: "error",
+            title: "Appshot not captured",
+            description: result.message,
+          });
+          return;
+        }
+        try {
+          const rawImage = await captureToComposerImage(result);
+          const compressed = await compressImageToByteLimit(
+            rawImage.file,
+            PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
+          );
+          if (!compressed.ok) {
+            URL.revokeObjectURL(rawImage.previewUrl);
+            toastManager.add({
+              type: "error",
+              title: "Appshot is too large to attach",
+            });
+            return;
+          }
+          const image =
+            compressed.file === rawImage.file
+              ? rawImage
+              : (() => {
+                  URL.revokeObjectURL(rawImage.previewUrl);
+                  return {
+                    ...rawImage,
+                    name: compressed.file.name || rawImage.name,
+                    mimeType: compressed.file.type,
+                    sizeBytes: compressed.file.size,
+                    previewUrl: URL.createObjectURL(compressed.file),
+                    file: compressed.file,
+                  } satisfies ComposerImageAttachment;
+                })();
+          addComposerImage(image);
+          scheduleComposerFocus();
+        } catch (error) {
+          toastManager.add({
+            type: "error",
+            title: "Appshot not attached",
+            description:
+              error instanceof Error ? error.message : "The captured window could not be prepared.",
+          });
+        }
+      })()
+        .catch((error) => {
+          toastManager.add({
+            type: "error",
+            title: "Appshot not captured",
+            description:
+              error instanceof Error ? error.message : "The window could not be captured.",
+          });
+        })
+        .finally(() => {
+          if (capturingAppshotRef.current?.requestId === target.requestId) {
+            capturingAppshotRef.current = null;
+          }
+          setCapturingAppshot((current) =>
+            current?.requestId === target.requestId ? null : current,
+          );
+        });
+    });
+  }, [
+    activeThreadId,
+    addComposerImage,
+    composerImagesRef,
+    pendingUserInputs.length,
+    projectSelectionRequired,
+    runtimeMode,
+    scheduleComposerFocus,
+  ]);
+
   const removeComposerTerminalContextFromDraft = useCallback(
     (contextId: string) => {
       const contextIndex = composerTerminalContexts.findIndex(
@@ -1477,6 +1601,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 mimeType: image.mimeType,
                 sizeBytes: image.sizeBytes,
                 dataUrl,
+                ...(image.appshot ? { appshot: image.appshot } : {}),
               });
             } catch {
               const existingPersisted = existingPersistedById.get(image.id);
@@ -2368,6 +2493,27 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     removeComposerImageFromDraft(imageId);
   };
 
+  const requestComposerAppshot = async () => {
+    const appshots = window.desktopBridge?.appshots;
+    if (!appshots || capturingAppshotRef.current) return;
+    try {
+      const target = await appshots.request();
+      if (!dispatchAppshotRequest(target)) {
+        toastManager.add({
+          type: "warning",
+          title: "Choose a task before capturing an Appshot",
+        });
+      }
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Appshot could not start",
+        description:
+          error instanceof Error ? error.message : "The frontmost app could not be selected.",
+      });
+    }
+  };
+
   // ------------------------------------------------------------------
   // Callbacks: paste / drag
   // ------------------------------------------------------------------
@@ -2941,6 +3087,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             {!isComposerCollapsedMobile &&
               !isComposerApprovalState &&
               pendingUserInputs.length === 0 &&
+              capturingAppshot && (
+                <div className="mb-3 flex flex-wrap gap-2">
+                  <PendingAppshotCard target={capturingAppshot} />
+                </div>
+              )}
+
+            {!isComposerCollapsedMobile &&
+              !isComposerApprovalState &&
+              pendingUserInputs.length === 0 &&
               composerImages.some(
                 (image) =>
                   !composerPreviewAnnotations.some((annotation) => annotation.id === image.id),
@@ -2953,66 +3108,79 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                           (annotation) => annotation.id === image.id,
                         ),
                     )
-                    .map((image) => (
-                      <div
-                        key={image.id}
-                        className="relative h-16 w-16 overflow-hidden rounded-lg border border-border/80 bg-background"
-                      >
-                        {image.previewUrl ? (
-                          <button
-                            type="button"
-                            className="h-full w-full cursor-zoom-in"
-                            aria-label={`Preview ${image.name}`}
-                            onClick={() => {
-                              const preview = buildExpandedImagePreview(composerImages, image.id);
-                              if (!preview) return;
-                              onExpandImage(preview);
-                            }}
-                          >
-                            <img
-                              src={image.previewUrl}
-                              alt={image.name}
-                              className="h-full w-full object-cover"
-                            />
-                          </button>
-                        ) : (
-                          <div className="flex h-full w-full items-center justify-center px-1 text-center text-[10px] text-secondary-label">
-                            {image.name}
-                          </div>
-                        )}
-                        {nonPersistedComposerImageIdSet.has(image.id) && (
-                          <Tooltip>
-                            <TooltipTrigger
-                              render={
-                                <span
-                                  role="img"
-                                  aria-label="Draft attachment may not persist"
-                                  className="absolute left-1 top-1 inline-flex items-center justify-center rounded bg-background/85 p-0.5 text-amber-600"
-                                >
-                                  <CircleAlertIcon className="size-3" />
-                                </span>
-                              }
-                            />
-                            <TooltipPopup
-                              side="top"
-                              className="max-w-64 whitespace-normal leading-tight"
-                            >
-                              Draft attachment could not be saved locally and may be lost on
-                              navigation.
-                            </TooltipPopup>
-                          </Tooltip>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          className="absolute right-1 top-1 bg-background/80 hover:bg-background/90"
-                          onClick={() => removeComposerImage(image.id)}
-                          aria-label={`Remove ${image.name}`}
+                    .map((image) => {
+                      const expand = () => {
+                        const preview = buildExpandedImagePreview(composerImages, image.id);
+                        if (preview) onExpandImage(preview);
+                      };
+                      if (image.appshot) {
+                        return (
+                          <AppshotAttachmentCard
+                            key={image.id}
+                            image={image}
+                            nonPersisted={nonPersistedComposerImageIdSet.has(image.id)}
+                            onExpand={expand}
+                            onRemove={() => removeComposerImage(image.id)}
+                          />
+                        );
+                      }
+                      return (
+                        <div
+                          key={image.id}
+                          className="relative h-16 w-16 overflow-hidden rounded-lg border border-border/80 bg-background"
                         >
-                          <XIcon />
-                        </Button>
-                      </div>
-                    ))}
+                          {image.previewUrl ? (
+                            <button
+                              type="button"
+                              className="h-full w-full cursor-zoom-in"
+                              aria-label={`Preview ${image.name}`}
+                              onClick={expand}
+                            >
+                              <img
+                                src={image.previewUrl}
+                                alt={image.name}
+                                className="h-full w-full object-cover"
+                              />
+                            </button>
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center px-1 text-center text-[10px] text-secondary-label">
+                              {image.name}
+                            </div>
+                          )}
+                          {nonPersistedComposerImageIdSet.has(image.id) && (
+                            <Tooltip>
+                              <TooltipTrigger
+                                render={
+                                  <span
+                                    role="img"
+                                    aria-label="Draft attachment may not persist"
+                                    className="absolute left-1 top-1 inline-flex items-center justify-center rounded bg-background/85 p-0.5 text-amber-600"
+                                  >
+                                    <CircleAlertIcon className="size-3" />
+                                  </span>
+                                }
+                              />
+                              <TooltipPopup
+                                side="top"
+                                className="max-w-64 whitespace-normal leading-tight"
+                              >
+                                Draft attachment could not be saved locally and may be lost on
+                                navigation.
+                              </TooltipPopup>
+                            </Tooltip>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            className="absolute right-1 top-1 bg-background/80 hover:bg-background/90"
+                            onClick={() => removeComposerImage(image.id)}
+                            aria-label={`Remove ${image.name}`}
+                          >
+                            <XIcon />
+                          </Button>
+                        </div>
+                      );
+                    })}
                 </div>
               )}
 
@@ -3107,6 +3275,55 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               )}
             >
               <div className="-m-1 -ms-3.5 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto p-1 ps-3.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                <Menu>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <MenuTrigger
+                          render={
+                            <Button
+                              type="button"
+                              size="icon-sm"
+                              variant="ghost"
+                              className="-ms-2 shrink-0 rounded-full"
+                              aria-label="Add context"
+                            />
+                          }
+                        />
+                      }
+                    >
+                      <PlusIcon className="size-4" />
+                    </TooltipTrigger>
+                    <TooltipPopup side="top">Add context</TooltipPopup>
+                  </Tooltip>
+                  <MenuPopup side="top" align="start" className="w-56">
+                    <MenuItem onClick={() => composerImagePickerRef.current?.click()}>
+                      <ImagePlusIcon />
+                      Add images
+                    </MenuItem>
+                    <MenuItem
+                      disabled={!window.desktopBridge?.appshots || capturingAppshot !== null}
+                      onClick={() => void requestComposerAppshot()}
+                    >
+                      <CameraIcon />
+                      {capturingAppshot ? "Capturing Appshot…" : "Take Appshot"}
+                    </MenuItem>
+                  </MenuPopup>
+                </Menu>
+                <input
+                  ref={composerImagePickerRef}
+                  className="hidden"
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  aria-label="Add images"
+                  onChange={(event) => {
+                    const files = Array.from(event.currentTarget.files ?? []);
+                    event.currentTarget.value = "";
+                    void addComposerImages(files);
+                  }}
+                />
+                <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
                 {noProviderAvailable ? (
                   <Button
                     type="button"
