@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 const stageArtworkState = vi.hoisted(() => ({
   mode: "none" as "artwork" | "none",
-  variant: null as "nightly" | "dev" | null,
+  variant: null as "nightly" | "dev" | "equinox" | null,
 }));
 
 vi.mock("~/hooks/useSettings", () => ({
@@ -205,6 +205,17 @@ describe("ComposerPrimaryActions", () => {
     expect(markup).toContain("stage-nightly");
     expect(markup).toContain("bg-transparent text-white");
     expect(markup).not.toContain("bg-message-action text-message-action-foreground");
+  });
+
+  it("uses the refined Equinox artwork and colors when artwork identification is active", () => {
+    stageArtworkState.mode = "artwork";
+    stageArtworkState.variant = "equinox";
+
+    const markup = renderSendButton();
+
+    expect(markup).toContain('data-stage-theme="equinox"');
+    expect(markup).toContain("stage-equinox");
+    expect(markup).toContain("text-[#fff8dc]");
   });
 
   it("keeps the normal send-button fill when artwork identification is inactive", () => {

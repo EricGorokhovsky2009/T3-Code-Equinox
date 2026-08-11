@@ -74,91 +74,92 @@ export function StageBackdropArt({ variant }: { variant: SidebarStageBackdropVar
   return <DevBlueprintArt />;
 }
 
+export function EquinoxButtonArt() {
+  return <EquinoxHorizonArt compact />;
+}
+
 function EquinoxHorizonArt({ compact = false }: { compact?: boolean }) {
   const idPrefix = useId().replaceAll(":", "");
   const skyId = `${idPrefix}-equinox-sky`;
-  const horizonId = `${idPrefix}-equinox-horizon`;
   const glowId = `${idPrefix}-equinox-glow`;
+  const surfaceId = `${idPrefix}-equinox-surface`;
   const patternId = `${idPrefix}-equinox-pattern`;
-  const centerX = compact ? 144 : 118;
 
   return (
     <svg
       className="h-full w-full"
       fill="none"
       preserveAspectRatio="xMinYMin slice"
-      viewBox={compact ? "72 0 8192 96" : STAGE_BACKDROP_VIEW_BOX}
+      viewBox={compact ? "288 0 96 96" : STAGE_BACKDROP_VIEW_BOX}
       xmlns="http://www.w3.org/2000/svg"
     >
       <defs>
         <linearGradient id={skyId} x1="0" y1="0" x2="0" y2="96" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#070B24" />
-          <stop offset="0.62" stopColor="#24143F" />
-          <stop offset="1" stopColor="#7A234D" />
-        </linearGradient>
-        <linearGradient id={horizonId} x1="0" y1="64" x2="0" y2="96" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#FFD05A" />
-          <stop offset="0.18" stopColor="#FF7A42" />
-          <stop offset="1" stopColor="#D92E43" />
+          <stop stopColor="#080C25" />
+          <stop offset="0.52" stopColor="#11102E" />
+          <stop offset="0.78" stopColor="#251534" />
+          <stop offset="1" stopColor="#35182F" />
         </linearGradient>
         <radialGradient
           id={glowId}
           cx="0"
           cy="0"
           r="1"
-          gradientTransform="translate(144 66) scale(94 22)"
+          gradientTransform="translate(336 59) scale(78 24)"
           gradientUnits="userSpaceOnUse"
         >
-          <stop stopColor="#FFF1A8" stopOpacity="0.95" />
-          <stop offset="0.28" stopColor="#FF9A54" stopOpacity="0.72" />
-          <stop offset="1" stopColor="#9A4CFF" stopOpacity="0" />
+          <stop stopColor="#FFF4BD" stopOpacity="0.95" />
+          <stop offset="0.2" stopColor="#FFB457" stopOpacity="0.72" />
+          <stop offset="0.52" stopColor="#F56A55" stopOpacity="0.3" />
+          <stop offset="1" stopColor="#8B5CF6" stopOpacity="0" />
         </radialGradient>
-        <pattern id={patternId} width="288" height="96" patternUnits="userSpaceOnUse">
-          <rect width="288" height="96" fill={`url(#${skyId})`} />
-          <ellipse
-            cx={centerX}
-            cy={compact ? 96 : 101}
-            rx={compact ? 116 : 72}
-            ry={compact ? 46 : 30}
-            fill={`url(#${horizonId})`}
-            fillOpacity={compact ? 1 : 0.72}
-          />
-          <ellipse
-            cx={centerX}
-            cy={compact ? 67 : 78}
-            rx={compact ? 105 : 68}
-            ry={compact ? 17 : 11}
-            fill={`url(#${glowId})`}
+        <linearGradient id={surfaceId} x1="0" y1="55" x2="0" y2="96" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#F25F55" stopOpacity="0.3" />
+          <stop offset="0.38" stopColor="#8B3865" stopOpacity="0.2" />
+          <stop offset="1" stopColor="#2B1735" stopOpacity="0" />
+        </linearGradient>
+        <pattern id={patternId} width="384" height="96" patternUnits="userSpaceOnUse">
+          <rect width="384" height="96" fill={`url(#${skyId})`} />
+          <ellipse cx="336" cy="59" rx="78" ry="24" fill={`url(#${glowId})`} />
+          <path
+            d="M-20 68C72 67 120 58 188 56C254 54 286 62 404 60V96H-20Z"
+            fill={`url(#${surfaceId})`}
           />
           <path
-            d={
-              compact
-                ? "M47 66C68 24 101 10 144 10C187 10 220 24 241 66"
-                : "M56 72C69 45 90 30 118 30C146 30 167 45 180 72"
-            }
-            stroke="#A98AFF"
-            strokeOpacity={compact ? 0.9 : 0.58}
-            strokeWidth={compact ? 1.6 : 1.1}
-          />
-          <path
-            d={
-              compact
-                ? "M47 66C68 24 101 10 144 10C187 10 220 24 241 66"
-                : "M56 72C69 45 90 30 118 30C146 30 167 45 180 72"
-            }
+            d="M-20 68C72 67 120 58 188 56C254 54 286 62 404 60"
             stroke="#8B5CF6"
-            strokeOpacity={compact ? 0.35 : 0.18}
-            strokeWidth={compact ? 5 : 3}
+            strokeOpacity="0.22"
+            strokeWidth="8"
           />
+          <path
+            d="M-20 68C72 67 120 58 188 56C254 54 286 62 404 60"
+            stroke="#FF7A59"
+            strokeOpacity="0.58"
+            strokeWidth="3"
+          />
+          <path
+            d="M-20 68C72 67 120 58 188 56C254 54 286 62 404 60"
+            stroke="#FFE28A"
+            strokeWidth="1.1"
+          />
+          <path d="M328 59A8 8 0 0 1 344 59Z" fill="#FFE79C" fillOpacity="0.94" />
+          <circle cx="336" cy="59" r="2.1" fill="#FFF8D8" />
         </pattern>
       </defs>
-      <rect width="100%" height="96" fill={`url(#${patternId})`} />
+      <rect
+        x={compact ? 288 : 0}
+        width={compact ? 96 : "100%"}
+        height="96"
+        fill={`url(#${patternId})`}
+      />
     </svg>
   );
 }
 
 export function StageBackdropButtonArt({ variant }: { variant: SidebarStageBackdropVariant }) {
-  return variant === "nightly" ? <NightlySkyArt compact /> : <DevBlueprintArt compact />;
+  if (variant === "nightly") return <NightlySkyArt compact />;
+  if (variant === "equinox") return <EquinoxButtonArt />;
+  return <DevBlueprintArt compact />;
 }
 
 const NIGHTLY_STARS: ReadonlyArray<{

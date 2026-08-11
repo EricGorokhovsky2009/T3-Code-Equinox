@@ -69,10 +69,13 @@ describe("SidebarStageBackdrop", () => {
   it.each([
     ["nightly", "96 0 8192 96"],
     ["dev", "64 0 8192 96"],
+    ["equinox", "288 0 96 96"],
   ] as const)("uses the compact %s crop inside the send button", (variant, viewBox) => {
     const markup = renderToStaticMarkup(<StageBackdropButtonArt variant={variant} />);
 
     expect(markup).toContain(`viewBox="${viewBox}"`);
-    expect(markup).toContain(`stage-${variant === "dev" ? "blueprint" : "nightly"}`);
+    if (variant !== "equinox") {
+      expect(markup).toContain(`stage-${variant === "dev" ? "blueprint" : "nightly"}`);
+    }
   });
 });
